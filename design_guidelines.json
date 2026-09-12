@@ -1,0 +1,82 @@
+{
+  "theme": "light",
+  "app_context": "Italian Insurance SaaS & Policy Management Platform (PolizzaHub / AssicuraFlow)",
+  "color_palette": {
+    "primary": "#0284C7",
+    "primary_dark": "#0369A1",
+    "primary_light": "#E0F2FE",
+    "secondary_accent": "#2563EB",
+    "background_main": "#F8FAFC",
+    "surface_card": "#FFFFFF",
+    "border_subtle": "#E2E8F0",
+    "text_primary": "#0F172A",
+    "text_secondary": "#475569",
+    "text_muted": "#64748B",
+    "success": "#10B981",
+    "warning": "#F59E0B",
+    "danger": "#EF4444",
+    "info": "#3B82F6"
+  },
+  "typography": {
+    "heading_font": "Cabinet Grotesk, Outfit, sans-serif",
+    "body_font": "Inter, system-ui, sans-serif",
+    "code_mono_font": "JetBrains Mono, monospace",
+    "hierarchy": {
+      "h1": "text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-slate-900",
+      "h2": "text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900",
+      "h3": "text-lg sm:text-xl font-semibold text-slate-900",
+      "h4": "text-base font-semibold text-slate-800",
+      "body": "text-sm sm:text-base leading-relaxed text-slate-600",
+      "caption": "text-xs font-medium text-slate-500"
+    }
+  },
+  "layout_and_spacing": {
+    "container_padding": "p-4 sm:p-6 lg:p-8",
+    "grid_gap": "gap-4 sm:gap-6",
+    "card_radius": "rounded-xl border border-slate-200/80 bg-white shadow-sm hover:shadow-md transition-all duration-200",
+    "header_style": "sticky top-0 z-40 w-full bg-white/90 backdrop-blur-md border-b border-slate-200"
+  },
+  "icons_and_media": {
+    "library": "lucide-react",
+    "image_urls": {
+      "signing_documents": "https://images.unsplash.com/photo-1562564055-71e051d33c19?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzR8MHwxfHNlYXJjaHwzfHxpbnN1cmFuY2UlMjBhZ2VudCUyMGRvY3VtZW50cyUyMGNvbnRyYWN0JTIwcHJvZmVzc2lvbmFsfGVufDB8fHx8MTc4OTIyMDAxNXww&ixlib=rb-4.1.0&q=85",
+      "policy_paper": "https://images.unsplash.com/photo-1637763723578-79a4ca9225f7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzR8MHwxfHNlYXJjaHwyfHxpbnN1cmFuY2UlMjBhZ2VudCUyMGRvY3VtZW50cyUyMGNvbnRyYWN0JTIwcHJvZmVzc2lvbmFsfGVufDB8fHx8MTc4OTIyMDAxNXww&ixlib=rb-4.1.0&q=85"
+    }
+  },
+  "components_and_views": {
+    "navigation": "Sidebar Navigation with links to Dashboard, Polizze (Policies), Estrazione AI (AI Extract), Scadenziario (Deadline Agenda), Modelli PDF (PDF Field Placement), Firma YouSign (YouSign OTP Sign).",
+    "dashboard_view": "Summary KPI cards (Totale Polizze, In Scadenza, Premio Totale, In Attesa di Firma), upcoming deadlines feed, policy distribution by Ramo (RCA, Incendio, Infortuni, Vita), quick actions.",
+    "policy_crud_form": "Comprehensive Italian insurance form divided into logical sections: Anagrafica (Contraente & Proprietario), Dati Polizza (Numero, Compagnia, Agenzia, Tipo, Ramo), Date & Scadenze (Data effetto, Data scadenza, Frazionamento: Annuale/Semestrale), Dettaglio Premi (Premio Netto/Lordo Annuale e Semestrale), Specifiche RCA (Data immatricolazione, Data voltura).",
+    "ai_document_extraction": "PDF/JPEG file dropzone, instant extraction progress, side-by-side verification view comparing extracted data tags with source document preview, one-click save or edit.",
+    "scadenziario_view": "Calendar/List view filtered by Date Range (Da - A), status pills (Scaduta, In Scadenza, Attiva), quick action to notify client or renew policy.",
+    "pdf_template_editor": "Interactive visual canvas to upload custom PDF, drag & drop or click-to-place policy fields onto exact X/Y coordinates, preview filled document, download or send for signature.",
+    "yousign_flow": "Send document for signature via YouSign API integration simulation, OTP verification step, signer phone number/email fields, status tracker (Bozza, Inviato, Firmato)."
+  },
+  "testing_requirements": {
+    "attribute": "data-testid",
+    "convention": "kebab-case description of role/function (e.g. data-testid=\"policy-form-contraente-input\")",
+    "mandatory_elements": [
+      "login-submit-button",
+      "nav-dashboard-link",
+      "nav-policies-link",
+      "nav-ai-extract-link",
+      "nav-agenda-link",
+      "nav-pdf-editor-link",
+      "nav-yousign-link",
+      "policy-search-input",
+      "policy-add-button",
+      "policy-form-save-button",
+      "ai-extract-upload-input",
+      "scadenziario-date-from-input",
+      "scadenziario-date-to-input",
+      "pdf-field-dropzone",
+      "yousign-send-otp-button"
+    ]
+  },
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": {
+    "general": "Maintain clean Italian business terminology (Contraente, Proprietario, Frazionamento Semestrale/Annuale, Premio Netto, Premio Lordo, Data Voltura, Compagnia di Emissione, Agenzia).",
+    "accessibility": "Ensure high text contrast against pure white cards and light slate backgrounds. Ensure clear hover/focus states with visible focus rings.",
+    "responsiveness": "Full mobile-to-desktop fluid design with collapsable sidebar menu and scrollable data tables.",
+    "mocking": "Provide interactive realistic Italian dummy data for policies, companies (Generali, UnipolSai, Allianz, AXA, Reale Mutua), and clients."
+  }
+}

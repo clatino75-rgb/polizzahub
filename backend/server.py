@@ -1,0 +1,472 @@
+from dotenv import load_dotenv
+from pathlib import Path
+load_dotenv(Path(__file__).parent / '.env')
+
+import os
+import io
+import base64
+import logging
+from datetime import datetime, timezone, date
+from typing import List, Optional, Annotated
+
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
+from fastapi.responses import Response as FastAPIResponse
+from starlette.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, Field, BeforeValidator, ConfigDict
+from bson import ObjectId
+
+from auth import build_auth, seed_admin, create_auth_indexes
+from extraction import extract_policy_fields, EXTRACT_FIELDS
+from pdf_utils import pdf_to_page_images, fill_pdf, image_to_pdf_bytes
+from excel_utils import policies_to_xlsx, xlsx_to_policies, template_xlsx
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+mongo_url = os.environ['MONGO_URL']
+client = AsyncIOMotorClient(mongo_url)
+db = client[os.environ['DB_NAME']]
+
+app = FastAPI(title="PolizzaHub API")
+api = APIRouter(prefix="/api")
+
+auth_router, get_current_user = build_auth(db)
+
+PyObjectId = Annotated[str, BeforeValidator(str)]
+
+
+# ---------- Models ----------
+class Policy(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    contraente_nome: str = ""
+    contraente_cf_piva: str = ""
+    contraente_indirizzo: str = ""
+    proprietario_nome: str = ""
+    proprietario_cf_piva: str = ""
+    proprietario_indirizzo: str = ""
+    numero_polizza: str = ""
+    data_effetto: str = ""
+    data_scadenza: str = ""
+    frazionamento: str = ""
+    premio_netto_annuale: str = ""
+    premio_lordo_annuale: str = ""
+    premio_netto_semestrale: str = ""
+    premio_lordo_semestrale: str = ""
+    data_immatricolazione: str = ""
+    data_voltura: str = ""
+    targa: str = ""
+    tipo_polizza: str = ""
+    ramo_polizza: str = ""
+    compagnia_emissione: str = ""
+    agenzia_emissione: str = ""
+    note: str = ""
+
+
+class FieldPlacement(BaseModel):
+    key: str
+    label: str = ""
+    page: int = 0
+    x: float = 0
+    y: float = 0
+    font_size: float = 11
+
+
+class SignatureRequest(BaseModel):
+    template_id: str
+    policy_id: Optional[str] = None
+    signer_name: str = ""
+    signer_email: str = ""
+    signer_phone: str = ""
+    field_values: dict = {}
+
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def serialize(doc: dict) -> dict:
+    if not doc:
+        return doc
+    doc = dict(doc)
+    doc["id"] = str(doc.pop("_id"))
+    return doc
+
+
+# ---------- Policies ----------
+@api.get("/policies")
+async def list_policies(search: str = "", user: dict = Depends(get_current_user)):
+    query = {"owner_id": str(user["_id"])}
+    if search:
+        rgx = {"$regex": search, "$options": "i"}
+        query["$or"] = [{"numero_polizza": rgx}, {"contraente_nome": rgx},
+                        {"proprietario_nome": rgx}, {"compagnia_emissione": rgx},
+                        {"targa": rgx}, {"ramo_polizza": rgx}]
+    docs = await db.policies.find(query).sort("created_at", -1).to_list(1000)
+    return [serialize(d) for d in docs]
+
+
+@api.post("/policies")
+async def create_policy(policy: Policy, user: dict = Depends(get_current_user)):
+    doc = policy.model_dump()
+    doc["owner_id"] = str(user["_id"])
+    doc["created_at"] = now_iso()
+    doc["updated_at"] = now_iso()
+    res = await db.policies.insert_one(doc)
+    saved = await db.policies.find_one({"_id": res.inserted_id})
+    return serialize(saved)
+
+
+XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@api.get("/policies/export")
+async def export_policies(user: dict = Depends(get_current_user)):
+    docs = await db.policies.find({"owner_id": str(user["_id"])}).sort("created_at", -1).to_list(5000)
+    data = policies_to_xlsx([serialize(d) for d in docs])
+    return FastAPIResponse(content=data, media_type=XLSX_MEDIA,
+                           headers={"Content-Disposition": "attachment; filename=anagrafiche_polizze.xlsx"})
+
+
+@api.get("/policies/export-template")
+async def export_template(user: dict = Depends(get_current_user)):
+    return FastAPIResponse(content=template_xlsx(), media_type=XLSX_MEDIA,
+                           headers={"Content-Disposition": "attachment; filename=modello_import_polizze.xlsx"})
+
+
+@api.post("/policies/import")
+async def import_policies(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    content = await file.read()
+    try:
+        records = xlsx_to_policies(content)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"File Excel non valido: {e}")
+    if not records:
+        raise HTTPException(status_code=400, detail="Nessuna riga valida trovata nel file")
+    owner = str(user["_id"])
+    inserted = 0
+    for rec in records:
+        doc = Policy(**rec).model_dump()
+        doc["owner_id"] = owner
+        doc["created_at"] = now_iso()
+        doc["updated_at"] = now_iso()
+        await db.policies.insert_one(doc)
+        inserted += 1
+    return {"message": f"{inserted} anagrafiche importate", "imported": inserted}
+
+
+@api.get("/policies/{policy_id}")
+async def get_policy(policy_id: str, user: dict = Depends(get_current_user)):
+    doc = await db.policies.find_one({"_id": ObjectId(policy_id), "owner_id": str(user["_id"])})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Polizza non trovata")
+    return serialize(doc)
+
+
+@api.put("/policies/{policy_id}")
+async def update_policy(policy_id: str, policy: Policy, user: dict = Depends(get_current_user)):
+    doc = policy.model_dump()
+    doc["updated_at"] = now_iso()
+    res = await db.policies.update_one(
+        {"_id": ObjectId(policy_id), "owner_id": str(user["_id"])}, {"$set": doc})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Polizza non trovata")
+    saved = await db.policies.find_one({"_id": ObjectId(policy_id)})
+    return serialize(saved)
+
+
+@api.delete("/policies/{policy_id}")
+async def delete_policy(policy_id: str, user: dict = Depends(get_current_user)):
+    res = await db.policies.delete_one({"_id": ObjectId(policy_id), "owner_id": str(user["_id"])})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Polizza non trovata")
+    return {"message": "Polizza eliminata"}
+
+
+# ---------- Scadenziario ----------
+@api.get("/scadenziario")
+async def scadenziario(date_from: str = "", date_to: str = "", user: dict = Depends(get_current_user)):
+    docs = await db.policies.find({"owner_id": str(user["_id"]),
+                                   "data_scadenza": {"$ne": ""}}).to_list(2000)
+    today = date.today().isoformat()
+    result = []
+    for d in docs:
+        scad = d.get("data_scadenza", "")
+        if not scad:
+            continue
+        if date_from and scad < date_from:
+            continue
+        if date_to and scad > date_to:
+            continue
+        status = "attiva"
+        if scad < today:
+            status = "scaduta"
+        else:
+            try:
+                delta = (datetime.fromisoformat(scad).date() - date.today()).days
+                if delta <= 30:
+                    status = "in_scadenza"
+            except Exception:
+                pass
+        item = serialize(d)
+        item["status"] = status
+        result.append(item)
+    result.sort(key=lambda x: x.get("data_scadenza", ""))
+    return result
+
+
+# ---------- Dashboard ----------
+@api.get("/dashboard/stats")
+async def dashboard_stats(user: dict = Depends(get_current_user)):
+    owner = str(user["_id"])
+    docs = await db.policies.find({"owner_id": owner}).to_list(5000)
+    today = date.today()
+    total = len(docs)
+    in_scadenza = 0
+    premio_totale = 0.0
+    ramo_count = {}
+    upcoming = []
+    for d in docs:
+        ramo = d.get("ramo_polizza") or "Altro"
+        ramo_count[ramo] = ramo_count.get(ramo, 0) + 1
+        try:
+            premio_totale += float(str(d.get("premio_lordo_annuale") or 0).replace(",", "."))
+        except Exception:
+            pass
+        scad = d.get("data_scadenza", "")
+        if scad:
+            try:
+                delta = (datetime.fromisoformat(scad).date() - today).days
+                if 0 <= delta <= 30:
+                    in_scadenza += 1
+                if delta >= -30:
+                    upcoming.append(serialize(d))
+            except Exception:
+                pass
+    upcoming.sort(key=lambda x: x.get("data_scadenza", ""))
+    pending = await db.signatures.count_documents({"owner_id": owner, "status": {"$in": ["bozza", "inviato"]}})
+    return {
+        "total_policies": total,
+        "in_scadenza": in_scadenza,
+        "premio_totale": round(premio_totale, 2),
+        "pending_signatures": pending,
+        "ramo_distribution": [{"ramo": k, "count": v} for k, v in ramo_count.items()],
+        "upcoming": upcoming[:8],
+    }
+
+
+# ---------- AI Extraction ----------
+@api.post("/extract")
+async def extract(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    content = await file.read()
+    if len(content) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File troppo grande (max 15MB)")
+    try:
+        data = await extract_policy_fields(content, file.filename)
+    except Exception as e:
+        logger.error(f"Extraction error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"fields": data, "filename": file.filename}
+
+
+@api.get("/extract/fields")
+async def extract_field_list(user: dict = Depends(get_current_user)):
+    return {"fields": EXTRACT_FIELDS}
+
+
+# ---------- PDF Templates ----------
+@api.post("/templates")
+async def create_template(name: str = Form(...), file: UploadFile = File(...),
+                          user: dict = Depends(get_current_user)):
+    content = await file.read()
+    fn = (file.filename or "").lower()
+    if fn.endswith((".jpg", ".jpeg", ".png")):
+        content = image_to_pdf_bytes(content)
+    try:
+        pages = pdf_to_page_images(content)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"PDF non valido: {e}")
+    doc = {
+        "owner_id": str(user["_id"]),
+        "name": name,
+        "pdf_b64": base64.b64encode(content).decode(),
+        "page_meta": [{"page": p["page"], "width": p["width"], "height": p["height"]} for p in pages],
+        "fields": [],
+        "created_at": now_iso(),
+    }
+    res = await db.templates.insert_one(doc)
+    return {"id": str(res.inserted_id), "name": name,
+            "pages": pages, "page_meta": doc["page_meta"], "fields": []}
+
+
+@api.get("/templates")
+async def list_templates(user: dict = Depends(get_current_user)):
+    docs = await db.templates.find({"owner_id": str(user["_id"])}).sort("created_at", -1).to_list(500)
+    return [{"id": str(d["_id"]), "name": d["name"], "fields": d.get("fields", []),
+             "page_count": len(d.get("page_meta", [])), "created_at": d.get("created_at")} for d in docs]
+
+
+@api.get("/templates/{template_id}")
+async def get_template(template_id: str, user: dict = Depends(get_current_user)):
+    d = await db.templates.find_one({"_id": ObjectId(template_id), "owner_id": str(user["_id"])})
+    if not d:
+        raise HTTPException(status_code=404, detail="Modello non trovato")
+    pages = pdf_to_page_images(base64.b64decode(d["pdf_b64"]))
+    return {"id": str(d["_id"]), "name": d["name"], "pages": pages,
+            "page_meta": d.get("page_meta", []), "fields": d.get("fields", [])}
+
+
+@api.put("/templates/{template_id}/fields")
+async def save_template_fields(template_id: str, fields: List[FieldPlacement],
+                               user: dict = Depends(get_current_user)):
+    res = await db.templates.update_one(
+        {"_id": ObjectId(template_id), "owner_id": str(user["_id"])},
+        {"$set": {"fields": [f.model_dump() for f in fields]}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Modello non trovato")
+    return {"message": "Campi salvati", "fields": [f.model_dump() for f in fields]}
+
+
+@api.delete("/templates/{template_id}")
+async def delete_template(template_id: str, user: dict = Depends(get_current_user)):
+    res = await db.templates.delete_one({"_id": ObjectId(template_id), "owner_id": str(user["_id"])})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Modello non trovato")
+    return {"message": "Modello eliminato"}
+
+
+async def _build_filled_pdf(template_id: str, owner_id: str, policy_id: Optional[str], overrides: dict) -> bytes:
+    d = await db.templates.find_one({"_id": ObjectId(template_id), "owner_id": owner_id})
+    if not d:
+        raise HTTPException(status_code=404, detail="Modello non trovato")
+    values = {}
+    if policy_id:
+        pol = await db.policies.find_one({"_id": ObjectId(policy_id), "owner_id": owner_id})
+        if pol:
+            values = {k: str(v) for k, v in pol.items() if isinstance(v, str)}
+    values.update({k: str(v) for k, v in (overrides or {}).items()})
+    placements = []
+    for f in d.get("fields", []):
+        placements.append({
+            "page": f.get("page", 0), "x": f.get("x", 0), "y": f.get("y", 0),
+            "font_size": f.get("font_size", 11),
+            "value": values.get(f.get("key"), ""),
+        })
+    return fill_pdf(base64.b64decode(d["pdf_b64"]), placements)
+
+
+class GenerateBody(BaseModel):
+    policy_id: Optional[str] = None
+    field_values: dict = {}
+
+
+@api.post("/templates/{template_id}/generate")
+async def generate_pdf(template_id: str, body: GenerateBody, user: dict = Depends(get_current_user)):
+    pdf_bytes = await _build_filled_pdf(template_id, str(user["_id"]), body.policy_id, body.field_values)
+    return FastAPIResponse(content=pdf_bytes, media_type="application/pdf",
+                           headers={"Content-Disposition": "attachment; filename=documento_compilato.pdf"})
+
+
+# ---------- YouSign (MOCKED) ----------
+@api.post("/signatures")
+async def create_signature(body: SignatureRequest, user: dict = Depends(get_current_user)):
+    owner = str(user["_id"])
+    pdf_bytes = await _build_filled_pdf(body.template_id, owner, body.policy_id, body.field_values)
+    yousign_key = os.environ.get("YOUSIGN_API_KEY", "")
+    provider = "yousign" if yousign_key else "mock"
+    doc = {
+        "owner_id": owner,
+        "template_id": body.template_id,
+        "policy_id": body.policy_id,
+        "signer_name": body.signer_name,
+        "signer_email": body.signer_email,
+        "signer_phone": body.signer_phone,
+        "pdf_b64": base64.b64encode(pdf_bytes).decode(),
+        "status": "inviato",
+        "provider": provider,
+        "otp_verified": False,
+        "created_at": now_iso(),
+        "events": [{"at": now_iso(), "label": "Richiesta creata e inviata per firma OTP"}],
+    }
+    res = await db.signatures.insert_one(doc)
+    return {"id": str(res.inserted_id), "status": doc["status"], "provider": provider,
+            "message": "Richiesta di firma inviata (simulazione OTP)" if provider == "mock"
+                       else "Inviata a YouSign"}
+
+
+@api.get("/signatures")
+async def list_signatures(user: dict = Depends(get_current_user)):
+    docs = await db.signatures.find({"owner_id": str(user["_id"])}).sort("created_at", -1).to_list(500)
+    out = []
+    for d in docs:
+        out.append({"id": str(d["_id"]), "signer_name": d.get("signer_name"),
+                    "signer_email": d.get("signer_email"), "signer_phone": d.get("signer_phone"),
+                    "status": d.get("status"), "provider": d.get("provider"),
+                    "otp_verified": d.get("otp_verified", False),
+                    "created_at": d.get("created_at"), "events": d.get("events", [])})
+    return out
+
+
+@api.get("/signatures/{sig_id}/document")
+async def get_signature_document(sig_id: str, user: dict = Depends(get_current_user)):
+    d = await db.signatures.find_one({"_id": ObjectId(sig_id), "owner_id": str(user["_id"])})
+    if not d:
+        raise HTTPException(status_code=404, detail="Richiesta non trovata")
+    return FastAPIResponse(content=base64.b64decode(d["pdf_b64"]), media_type="application/pdf",
+                           headers={"Content-Disposition": "inline; filename=documento_firma.pdf"})
+
+
+class OtpBody(BaseModel):
+    otp: str = ""
+
+
+@api.post("/signatures/{sig_id}/verify-otp")
+async def verify_otp(sig_id: str, body: OtpBody, user: dict = Depends(get_current_user)):
+    d = await db.signatures.find_one({"_id": ObjectId(sig_id), "owner_id": str(user["_id"])})
+    if not d:
+        raise HTTPException(status_code=404, detail="Richiesta non trovata")
+    # MOCK: accept any 4+ digit code
+    if not body.otp or len(body.otp) < 4:
+        raise HTTPException(status_code=400, detail="Codice OTP non valido")
+    events = d.get("events", [])
+    events.append({"at": now_iso(), "label": f"OTP verificato ({body.otp}) - documento firmato"})
+    await db.signatures.update_one({"_id": d["_id"]},
+                                   {"$set": {"status": "firmato", "otp_verified": True, "events": events}})
+    return {"status": "firmato", "message": "Firma completata con successo (simulazione)"}
+
+
+@api.delete("/signatures/{sig_id}")
+async def delete_signature(sig_id: str, user: dict = Depends(get_current_user)):
+    res = await db.signatures.delete_one({"_id": ObjectId(sig_id), "owner_id": str(user["_id"])})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Richiesta non trovata")
+    return {"message": "Eliminata"}
+
+
+@api.get("/")
+async def root():
+    return {"message": "PolizzaHub API"}
+
+
+app.include_router(auth_router)
+app.include_router(api)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=os.environ.get('CORS_ORIGINS', 'http://localhost:3000').split(','),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.on_event("startup")
+async def startup():
+    await create_auth_indexes(db)
+    await seed_admin(db)
+    logger.info("PolizzaHub startup complete")
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    client.close()
