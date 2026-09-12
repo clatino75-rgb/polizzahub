@@ -78,9 +78,29 @@ export default function ClienteDetailDialog({ id, open, onOpenChange }) {
               </div>
             )}
 
+            {stats.expired && stats.expired.length > 0 && (
+              <div data-testid="cliente-storico">
+                <p className="mb-2 text-sm font-semibold text-slate-700">Storico (polizze scadute / rinnovi)</p>
+                <div className="space-y-2">
+                  {stats.expired.map((p) => (
+                    <div key={p.id} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50/40 p-3" data-testid={`cliente-storico-${p.id}`}>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-700">{p.numero_polizza || "—"}</p>
+                        <p className="truncate text-xs text-slate-400">{p.ramo_polizza || p.compagnia_emissione || "—"}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {p.renewed_to && <Badge variant="secondary">Rinnovata</Badge>}
+                        {p.renewed_from && <Badge variant="secondary">Rinnovo</Badge>}
+                        <Badge className="border-0 bg-red-100 text-red-700">Scaduta {p.data_scadenza}</Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div>
-              <p className="mb-2 text-sm font-semibold text-slate-700">Tutte le polizze collegate</p>
-              <Card className="overflow-hidden">
+              <p className="mb-2 text-sm font-semibold text-slate-700">Tutte le polizze collegate</p>              <Card className="overflow-hidden">
                 <div className="overflow-x-auto scrollbar-thin">
                   <Table>
                     <TableHeader>

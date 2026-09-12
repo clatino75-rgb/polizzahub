@@ -4,6 +4,7 @@ load_dotenv(Path(__file__).parent / '.env')
 
 import os
 import io
+import re
 import json
 import hmac
 import base64
@@ -69,6 +70,8 @@ class Policy(BaseModel):
     compagnia_id: str = ""
     collaboratore_id: str = ""
     proprietario_anagrafica_id: str = ""
+    renewed_from: str = ""
+    renewed_to: str = ""
     note: str = ""
 
 
@@ -238,6 +241,39 @@ async def anagrafica_detail(item_id: str, user: dict = Depends(get_current_user)
     today = date.today()
     total = 0.0
     upcoming = []
+    expired = []
+    for p in pols:
+        try:
+            total += float(str(p.get("premio_lordo_annuale") or 0).replace(",", "."))
+        except Exception:
+            pass
+        scad = p.get("data_scadenza", "")
+        if scad:
+            try:
+                if (date.fromisoformat(scad) - today).days >= 0:
+                    upcoming.append(serialize(p))
+                else:
+                    expired.append(serialize(p))
+            except Exception:
+                pass
+    return {
+        "anagrafica": serialize(a),
+        "policies": [serialize(p) for p in pols],
+        "stats": {"count": len(pols), "premio_totale": round(total, 2),
+                  "upcoming": upcoming[:5], "expired": expired},
+    }
+
+
+@api.get("/collaboratori/{item_id}/detail")
+async def collaboratore_detail(item_id: str, user: dict = Depends(get_current_user)):
+    owner = str(user["_id"])
+    c = await db.collaboratori.find_one({"_id": ObjectId(item_id), "owner_id": owner})
+    if not c:
+        raise HTTPException(status_code=404, detail="Collaboratore non trovato")
+    pols = await db.policies.find({"owner_id": owner, "collaboratore_id": item_id}).sort("data_scadenza", 1).to_list(5000)
+    today = date.today()
+    total = 0.0
+    upcoming = []
     for p in pols:
         try:
             total += float(str(p.get("premio_lordo_annuale") or 0).replace(",", "."))
@@ -251,7 +287,7 @@ async def anagrafica_detail(item_id: str, user: dict = Depends(get_current_user)
             except Exception:
                 pass
     return {
-        "anagrafica": serialize(a),
+        "collaboratore": serialize(c),
         "policies": [serialize(p) for p in pols],
         "stats": {"count": len(pols), "premio_totale": round(total, 2), "upcoming": upcoming[:5]},
     }
@@ -259,13 +295,20 @@ async def anagrafica_detail(item_id: str, user: dict = Depends(get_current_user)
 
 # ---------- Policies ----------
 @api.get("/policies")
-async def list_policies(search: str = "", user: dict = Depends(get_current_user)):
+async def list_policies(search: str = "", compagnia_id: str = "", ramo: str = "",
+                        collaboratore_id: str = "", user: dict = Depends(get_current_user)):
     query = {"owner_id": str(user["_id"])}
     if search:
         rgx = {"$regex": search, "$options": "i"}
         query["$or"] = [{"numero_polizza": rgx}, {"contraente_nome": rgx},
                         {"proprietario_nome": rgx}, {"compagnia_emissione": rgx},
                         {"targa": rgx}, {"ramo_polizza": rgx}]
+    if compagnia_id:
+        query["compagnia_id"] = compagnia_id
+    if collaboratore_id:
+        query["collaboratore_id"] = collaboratore_id
+    if ramo:
+        query["ramo_polizza"] = {"$regex": f"^{re.escape(ramo)}$", "$options": "i"}
     docs = await db.policies.find(query).sort("created_at", -1).to_list(1000)
     return [serialize(d) for d in docs]
 
@@ -342,6 +385,12 @@ async def import_policies(file: UploadFile = File(...), mapping: str = Form(""),
             "skipped_count": skipped_count, "skipped": report["skipped"][:50]}
 
 
+@api.get("/policies/rami")
+async def policy_rami(user: dict = Depends(get_current_user)):
+    vals = await db.policies.distinct("ramo_polizza", {"owner_id": str(user["_id"])})
+    return sorted([v for v in vals if v])
+
+
 @api.get("/policies/{policy_id}")
 async def get_policy(policy_id: str, user: dict = Depends(get_current_user)):
     doc = await db.policies.find_one({"_id": ObjectId(policy_id), "owner_id": str(user["_id"])})
@@ -394,9 +443,12 @@ async def renew_policy(policy_id: str, user: dict = Depends(get_current_user)):
     new["data_effetto"] = new_effetto
     new["data_scadenza"] = new_scad or new["data_scadenza"]
     new["owner_id"] = str(user["_id"])
+    new["renewed_from"] = policy_id
+    new["renewed_to"] = ""
     new["created_at"] = now_iso()
     new["updated_at"] = now_iso()
     res = await db.policies.insert_one(new)
+    await db.policies.update_one({"_id": ObjectId(policy_id)}, {"$set": {"renewed_to": str(res.inserted_id)}})
     saved = await db.policies.find_one({"_id": res.inserted_id})
     return serialize(saved)
 

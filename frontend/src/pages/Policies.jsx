@@ -5,6 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
@@ -15,7 +18,7 @@ import PolicyFormDialog from "@/components/PolicyFormDialog";
 import DocumentsDialog from "@/components/DocumentsDialog";
 import ExcelImportDialog from "@/components/ExcelImportDialog";
 import {
-  Plus, Search, Pencil, Trash2, Download, Upload, FileSpreadsheet, FileText, RefreshCw, Paperclip,
+  Plus, Search, Pencil, Trash2, Download, Upload, FileSpreadsheet, FileText, RefreshCw, Paperclip, Filter, X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -29,23 +32,37 @@ export default function Policies() {
   const [docFor, setDocFor] = useState(null);
   const [mapFile, setMapFile] = useState(null);
   const [mapOpen, setMapOpen] = useState(false);
+  const [filters, setFilters] = useState({ compagnia_id: "", ramo: "", collaboratore_id: "" });
+  const [compagnie, setCompagnie] = useState([]);
+  const [collaboratori, setCollaboratori] = useState([]);
+  const [rami, setRami] = useState([]);
   const fileRef = useRef(null);
 
-  const load = async (q = "") => {
+  const load = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get(`/policies`, { params: { search: q } });
+      const params = { search };
+      if (filters.compagnia_id) params.compagnia_id = filters.compagnia_id;
+      if (filters.ramo) params.ramo = filters.ramo;
+      if (filters.collaboratore_id) params.collaboratore_id = filters.collaboratore_id;
+      const { data } = await api.get(`/policies`, { params });
       setPolicies(data);
+      api.get("/policies/rami").then((r) => setRami(r.data)).catch(() => {});
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { load(); }, []);
   useEffect(() => {
-    const t = setTimeout(() => load(search), 350);
+    api.get("/registry/compagnie").then((r) => setCompagnie(r.data)).catch(() => {});
+    api.get("/registry/collaboratori").then((r) => setCollaboratori(r.data)).catch(() => {});
+    api.get("/policies/rami").then((r) => setRami(r.data)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(load, 350);
     return () => clearTimeout(t);
-  }, [search]);
+  }, [search, filters]);
 
   const save = async (form) => {
     try {
@@ -58,7 +75,7 @@ export default function Policies() {
       }
       setDialogOpen(false);
       setEditing(null);
-      load(search);
+      load();
     } catch (e) {
       toast.error("Errore nel salvataggio");
     }
@@ -68,7 +85,7 @@ export default function Policies() {
     try {
       await api.delete(`/policies/${delId}`);
       toast.success("Polizza eliminata");
-      load(search);
+      load();
     } catch {
       toast.error("Errore nell'eliminazione");
     } finally {
@@ -88,7 +105,7 @@ export default function Policies() {
     try {
       await api.post(`/policies/${id}/renew`);
       toast.success("Polizza rinnovata: creata copia con nuove date");
-      load(search);
+      load();
     } catch {
       toast.error("Rinnovo non riuscito");
     }
@@ -126,10 +143,39 @@ export default function Policies() {
         </div>
       </div>
 
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        <Input value={search} onChange={(e) => setSearch(e.target.value)} data-testid="policy-search-input"
-          placeholder="Cerca per numero, contraente, targa, compagnia…" className="pl-9" />
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} data-testid="policy-search-input"
+            placeholder="Cerca numero, contraente, targa…" className="pl-9" />
+        </div>
+        <Select value={filters.compagnia_id || "__all"} onValueChange={(v) => setFilters((f) => ({ ...f, compagnia_id: v === "__all" ? "" : v }))}>
+          <SelectTrigger className="w-[180px]" data-testid="filter-compagnia"><SelectValue placeholder="Compagnia" /></SelectTrigger>
+          <SelectContent className="max-h-64">
+            <SelectItem value="__all">Tutte le compagnie</SelectItem>
+            {compagnie.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={filters.ramo || "__all"} onValueChange={(v) => setFilters((f) => ({ ...f, ramo: v === "__all" ? "" : v }))}>
+          <SelectTrigger className="w-[160px]" data-testid="filter-ramo"><SelectValue placeholder="Ramo" /></SelectTrigger>
+          <SelectContent className="max-h-64">
+            <SelectItem value="__all">Tutti i rami</SelectItem>
+            {rami.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={filters.collaboratore_id || "__all"} onValueChange={(v) => setFilters((f) => ({ ...f, collaboratore_id: v === "__all" ? "" : v }))}>
+          <SelectTrigger className="w-[180px]" data-testid="filter-collaboratore"><SelectValue placeholder="Collaboratore" /></SelectTrigger>
+          <SelectContent className="max-h-64">
+            <SelectItem value="__all">Tutti i collaboratori</SelectItem>
+            {collaboratori.map((k) => <SelectItem key={k.id} value={k.id}>{k.nome}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        {(search || filters.compagnia_id || filters.ramo || filters.collaboratore_id) && (
+          <Button variant="ghost" size="sm" data-testid="filter-clear"
+            onClick={() => { setSearch(""); setFilters({ compagnia_id: "", ramo: "", collaboratore_id: "" }); }}>
+            <X className="mr-1 h-4 w-4" /> Azzera
+          </Button>
+        )}
       </div>
 
       <Card className="overflow-hidden">
@@ -192,7 +238,7 @@ export default function Policies() {
 
       <DocumentsDialog open={!!docFor} onOpenChange={(o) => !o && setDocFor(null)} policy={docFor} />
 
-      <ExcelImportDialog open={mapOpen} onOpenChange={setMapOpen} file={mapFile} onDone={() => load(search)} />
+      <ExcelImportDialog open={mapOpen} onOpenChange={setMapOpen} file={mapFile} onDone={() => load()} />
 
       <AlertDialog open={!!delId} onOpenChange={(o) => !o && setDelId(null)}>
         <AlertDialogContent>

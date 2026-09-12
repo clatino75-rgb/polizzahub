@@ -40,10 +40,16 @@ App italiana per la gestione delle polizze assicurative: estrazione automatica d
 - Auto-associazione polizza ad anagrafica esistente (match CF/P.IVA o nome) senza cancellare polizze precedenti; compagnia auto-creata; link anagrafica/compagnia/collaboratore nella scheda polizza
 - Testato al 100% (backend + frontend E2E, iterazioni 1-4)
 
+## Implementato (2026-09-12, iterazione 4)
+- Filtri lista polizze per compagnia, ramo e collaboratore (combinabili, con azzera) + endpoint /api/policies/rami
+- Cruscotto Collaboratore: polizze gestite e premi totali (GET /api/collaboratori/{id}/detail)
+- Storico Cliente nella scheda anagrafica: polizze scadute e catena rinnovi (renewed_from/renewed_to)
+- Testato al 100% (iterazioni 1-6)
+
 ## Backlog / prossimi
 - P1: Inserimento reale API key YouSign per firma OTP via SMS
 - P2: Storage documenti su object storage esterno per volumi elevati
-- P2: Report righe scartate esportabile
+- P2: Export cruscotti (cliente/collaboratore) in PDF
 
 ## Implementato (2026-09-12, iterazione 3)
 - Scheda Cliente: apertura anagrafica con polizze collegate (come contraente o proprietario), premio totale e prossime scadenze (GET /api/anagrafiche/{id}/detail)

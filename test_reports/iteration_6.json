@@ -1,0 +1,32 @@
+{
+  "summary": "Verified all 3 new PolizzaHub features end-to-end via backend pytest (4/4) + Playwright UI. (1) FILTRI POLIZZE: filter-compagnia / filter-ramo / filter-collaboratore + text search combine as AND; filter-clear resets. Verified ramo=RCA, ramo=Casa2, collaboratore filter alone, and collab+RCA (=P1) and collab+Casa2 (=0) AND combinations. Backend /api/policies?ramo=RCA / ?collaboratore_id / ?compagnia_id return correct subsets, /api/policies/rami returns distinct rami. (2) CRUSCOTTO COLLABORATORE: Collaboratori row -> collaboratori-view-{id} -> collaboratore-detail-dialog with collab-stat-count='1', collab-stat-premio='€ 300', and collab-policy-{p1id} row displayed. Backend /api/collaboratori/{id}/detail returns stats.count=1, premio_totale>=300 and policy in policies[]. (3) STORICO CLIENTE: Created policy 'Storico Test 2' scadenza 2020-01-01, opened auto-created anagrafica via anagrafiche-view-{id}, cliente-detail-dialog shows cliente-storico section with cliente-storico-{pid} entry badged 'Scaduta 2020-01-01'. After renew via policy-renew-{p3id}, re-opening detail shows TWO storico entries: original with 'Rinnovata\\nScaduta 2020-01-01' badge and new copy with 'Rinnovo\\nScaduta 2021-01-01' badge. Backend anagrafica detail stats.expired list includes the expired policy. Regression: policy CRUD (create/edit/delete), search, renew (year+1), registry CRUD (collaboratori create/delete via /api/registry/collaboratori) still all work.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Policies filters", "issues": ["The filter-ramo dropdown is populated once on mount via GET /api/policies/rami and NEVER re-fetched after a new policy is created on the same page. To see a newly-added ramo in the filter, the user must reload the page. Minor UX gap — consider adding load-of-rami into the useEffect that already reloads policies, OR refresh rami inside save() success handler."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter6_features.py", "/app/test_reports/pytest/iter6.xml"],
+  "action_items": [
+    "(Optional/minor UX) In Policies.jsx, refresh the rami list after a successful policy save/delete (or include api.get('/policies/rami') inside the same useEffect that watches [search, filters]) so newly-introduced rami appear in filter-ramo without a full page reload."
+  ],
+  "critical_code_review_comments": [
+    "server.py GET /api/policies now correctly supports compagnia_id, ramo (case-insensitive exact via regex ^..$), and collaboratore_id filters combined with existing text search — good.",
+    "server.py GET /api/policies/rami returns distinct non-empty rami scoped to owner — good and used by frontend filter.",
+    "server.py GET /api/collaboratori/{id}/detail correctly aggregates count + premio_totale across linked policies via collaboratore_id — good.",
+    "Anagrafica detail 'expired' is returned as a LIST of expired policies (not a count). ClienteDetailDialog correctly maps over stats.expired to render cliente-storico-{id} entries. Frontend and backend are consistent.",
+    "Policies.jsx: rami dropdown is populated once on mount only — will go stale after CRUD on same page (see design_issues above).",
+    "CollaboratoreDetailDialog / ClienteDetailDialog both defensively guard stats?.count etc. — good.",
+    "Renew endpoint sets renewed_from on the new policy and renewed_to on the source. ClienteDetailDialog uses these to badge 'Rinnovata' / 'Rinnovo' correctly."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter6_features.py (new)"],
+  "success_rate": {"backend": "100% (4/4 iter6 pytest)", "frontend": "100% (3/3 new features + renew bonus)"},
+  "test_credentials": "clatino75@gmail.com / Polizze2026! — working",
+  "seed_data_creation": "Created & CLEANED UP: 3 test policies (TEST-UI2-P1/P2/P3) + 1 collaboratore (TEST Collab UI2) via UI. Auto-created anagrafiche 'TEST Cust UI2 Uno/Due', 'Storico Test 2' were LEFT in DB (no cascade delete endpoint). Pytest fixtures cleaned up TEST-I6-* rows.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "New testids this iteration: filter-compagnia, filter-ramo, filter-collaboratore, filter-clear, policy-link-collaboratore (in PolicyFormDialog Collegamenti), collaboratori-view-{id}, collaboratore-detail-dialog, collab-stat-count/premio/upcoming, collab-policy-{id}, cliente-storico, cliente-storico-{id}, policy-renew-{id}. Select sentinels: filters '__all', links '__none'. Backend endpoints: GET /api/policies?compagnia_id&ramo&collaboratore_id (AND, ramo exact CI), GET /api/policies/rami, GET /api/collaboratori/{id}/detail, /api/anagrafiche/{id}/detail now includes stats.expired as list. Registry CRUD is under /api/registry/{kind} (kind=collaboratori/compagnie/anagrafiche), NOT /api/collaboratori. premio_lordo_annuale is a STRING field.",
+  "rca of the issue": "N/A — no functional bugs. One minor UX polish item noted (stale rami dropdown after in-page policy creation)."
+}

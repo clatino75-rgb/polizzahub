@@ -1,4 +1,6 @@
+import { useState } from "react";
 import EntityManager from "@/components/EntityManager";
+import CollaboratoreDetailDialog from "@/components/CollaboratoreDetailDialog";
 
 const config = {
   endpoint: "/registry/collaboratori",
@@ -22,5 +24,11 @@ const config = {
 };
 
 export default function Collaboratori() {
-  return <EntityManager config={config} />;
+  const [detailId, setDetailId] = useState(null);
+  return (
+    <>
+      <EntityManager config={config} onView={(it) => setDetailId(it.id)} />
+      <CollaboratoreDetailDialog id={detailId} open={!!detailId} onOpenChange={(o) => !o && setDetailId(null)} />
+    </>
+  );
 }
