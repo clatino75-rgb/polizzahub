@@ -5,13 +5,14 @@ load_dotenv(Path(__file__).parent / '.env')
 import os
 import io
 import json
+import hmac
 import base64
 import logging
 import httpx
 from datetime import datetime, timezone, date
 from typing import List, Optional, Annotated
 
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, UploadFile, File, Form, Request, BackgroundTasks
 from fastapi.responses import Response as FastAPIResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
@@ -21,7 +22,8 @@ from bson import ObjectId
 from auth import build_auth, seed_admin, create_auth_indexes
 from extraction import extract_policy_fields, EXTRACT_FIELDS
 from pdf_utils import pdf_to_page_images, fill_pdf, image_to_pdf_bytes
-from excel_utils import policies_to_xlsx, xlsx_to_policies, template_xlsx, read_excel_preview
+from excel_utils import policies_to_xlsx, xlsx_to_policies, template_xlsx, read_excel_preview, parse_xlsx_with_report
+from notifications import run_expiry_alerts
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -63,6 +65,9 @@ class Policy(BaseModel):
     ramo_polizza: str = ""
     compagnia_emissione: str = ""
     agenzia_emissione: str = ""
+    anagrafica_id: str = ""
+    compagnia_id: str = ""
+    collaboratore_id: str = ""
     note: str = ""
 
 
@@ -96,6 +101,109 @@ def serialize(doc: dict) -> dict:
     return doc
 
 
+REGISTRY_FIELDS = {
+    "anagrafiche": ["nome", "cf_piva", "indirizzo", "email", "telefono", "tipo", "note"],
+    "compagnie": ["nome", "indirizzo", "email", "telefono", "note"],
+    "collaboratori": ["nome", "email", "telefono", "ruolo", "note"],
+}
+
+
+def _sanitize_registry(kind: str, body: dict) -> dict:
+    return {k: str(body.get(k, "") or "") for k in REGISTRY_FIELDS[kind]}
+
+
+async def _link_entities(owner: str, doc: dict):
+    """Auto-associate the policy to an existing (or new) anagrafica/compagnia without
+    ever deleting existing records. Existing policies of the same client are preserved."""
+    if not doc.get("anagrafica_id"):
+        cf = (doc.get("contraente_cf_piva") or "").strip()
+        nome = (doc.get("contraente_nome") or "").strip()
+        if cf or nome:
+            match = None
+            for a in await db.anagrafiche.find({"owner_id": owner}).to_list(5000):
+                acf = (a.get("cf_piva") or "").strip().lower()
+                anome = (a.get("nome") or "").strip().lower()
+                if cf and acf and acf == cf.lower():
+                    match = a; break
+                if (not cf) and nome and anome == nome.lower():
+                    match = a; break
+            if match:
+                doc["anagrafica_id"] = str(match["_id"])
+            else:
+                na = {"owner_id": owner, "nome": nome, "cf_piva": cf,
+                      "indirizzo": doc.get("contraente_indirizzo", ""), "email": "",
+                      "telefono": "", "tipo": "Contraente", "note": "", "created_at": now_iso()}
+                r = await db.anagrafiche.insert_one(na)
+                doc["anagrafica_id"] = str(r.inserted_id)
+    if not doc.get("compagnia_id"):
+        cn = (doc.get("compagnia_emissione") or "").strip()
+        if cn:
+            match = None
+            for c in await db.compagnie.find({"owner_id": owner}).to_list(5000):
+                if (c.get("nome") or "").strip().lower() == cn.lower():
+                    match = c; break
+            if match:
+                doc["compagnia_id"] = str(match["_id"])
+            else:
+                r = await db.compagnie.insert_one({"owner_id": owner, "nome": cn, "indirizzo": "",
+                                                   "email": "", "telefono": "", "note": "", "created_at": now_iso()})
+                doc["compagnia_id"] = str(r.inserted_id)
+    return doc
+
+
+# ---------- Registry: anagrafiche / compagnie / collaboratori ----------
+@api.get("/registry/{kind}")
+async def list_registry(kind: str, search: str = "", user: dict = Depends(get_current_user)):
+    if kind not in REGISTRY_FIELDS:
+        raise HTTPException(status_code=404, detail="Tipo non valido")
+    q = {"owner_id": str(user["_id"])}
+    if search:
+        rgx = {"$regex": search, "$options": "i"}
+        q["$or"] = [{"nome": rgx}, {"cf_piva": rgx}, {"email": rgx}, {"telefono": rgx}]
+    docs = await db[kind].find(q).sort("nome", 1).to_list(3000)
+    return [serialize(d) for d in docs]
+
+
+@api.post("/registry/{kind}")
+async def create_registry(kind: str, body: dict, user: dict = Depends(get_current_user)):
+    if kind not in REGISTRY_FIELDS:
+        raise HTTPException(status_code=404, detail="Tipo non valido")
+    doc = _sanitize_registry(kind, body)
+    doc["owner_id"] = str(user["_id"])
+    doc["created_at"] = now_iso()
+    res = await db[kind].insert_one(doc)
+    saved = await db[kind].find_one({"_id": res.inserted_id})
+    return serialize(saved)
+
+
+@api.put("/registry/{kind}/{item_id}")
+async def update_registry(kind: str, item_id: str, body: dict, user: dict = Depends(get_current_user)):
+    if kind not in REGISTRY_FIELDS:
+        raise HTTPException(status_code=404, detail="Tipo non valido")
+    doc = _sanitize_registry(kind, body)
+    res = await db[kind].update_one({"_id": ObjectId(item_id), "owner_id": str(user["_id"])}, {"$set": doc})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Elemento non trovato")
+    saved = await db[kind].find_one({"_id": ObjectId(item_id)})
+    return serialize(saved)
+
+
+@api.delete("/registry/{kind}/{item_id}")
+async def delete_registry(kind: str, item_id: str, user: dict = Depends(get_current_user)):
+    if kind not in REGISTRY_FIELDS:
+        raise HTTPException(status_code=404, detail="Tipo non valido")
+    res = await db[kind].delete_one({"_id": ObjectId(item_id), "owner_id": str(user["_id"])})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Elemento non trovato")
+    return {"message": "Eliminato"}
+
+
+@api.get("/anagrafiche/{item_id}/policies")
+async def anagrafica_policies(item_id: str, user: dict = Depends(get_current_user)):
+    docs = await db.policies.find({"owner_id": str(user["_id"]), "anagrafica_id": item_id}).sort("created_at", -1).to_list(1000)
+    return [serialize(d) for d in docs]
+
+
 # ---------- Policies ----------
 @api.get("/policies")
 async def list_policies(search: str = "", user: dict = Depends(get_current_user)):
@@ -113,6 +221,7 @@ async def list_policies(search: str = "", user: dict = Depends(get_current_user)
 async def create_policy(policy: Policy, user: dict = Depends(get_current_user)):
     doc = policy.model_dump()
     doc["owner_id"] = str(user["_id"])
+    await _link_entities(str(user["_id"]), doc)
     doc["created_at"] = now_iso()
     doc["updated_at"] = now_iso()
     res = await db.policies.insert_one(doc)
@@ -157,10 +266,11 @@ async def import_policies(file: UploadFile = File(...), mapping: str = Form(""),
         except Exception:
             mp = None
     try:
-        records = xlsx_to_policies(content, mp)
+        report = parse_xlsx_with_report(content, mp)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"File Excel non valido: {e}")
-    if not records:
+    records = report["policies"]
+    if not records and not report["skipped"]:
         raise HTTPException(status_code=400, detail="Nessuna riga valida trovata nel file")
     owner = str(user["_id"])
     inserted = 0
@@ -171,7 +281,12 @@ async def import_policies(file: UploadFile = File(...), mapping: str = Form(""),
         doc["updated_at"] = now_iso()
         await db.policies.insert_one(doc)
         inserted += 1
-    return {"message": f"{inserted} anagrafiche importate", "imported": inserted}
+    skipped_count = len(report["skipped"])
+    msg = f"{inserted} anagrafiche importate"
+    if skipped_count:
+        msg += f", {skipped_count} righe scartate"
+    return {"message": msg, "imported": inserted, "total": report["total"],
+            "skipped_count": skipped_count, "skipped": report["skipped"][:50]}
 
 
 @api.get("/policies/{policy_id}")
@@ -185,6 +300,7 @@ async def get_policy(policy_id: str, user: dict = Depends(get_current_user)):
 @api.put("/policies/{policy_id}")
 async def update_policy(policy_id: str, policy: Policy, user: dict = Depends(get_current_user)):
     doc = policy.model_dump()
+    await _link_entities(str(user["_id"]), doc)
     doc["updated_at"] = now_iso()
     res = await db.policies.update_one(
         {"_id": ObjectId(policy_id), "owner_id": str(user["_id"])}, {"$set": doc})
@@ -269,6 +385,17 @@ async def download_document(doc_id: str, user: dict = Depends(get_current_user))
     data = await stream.read()
     return FastAPIResponse(content=data, media_type=d.get("content_type", "application/octet-stream"),
                            headers={"Content-Disposition": f'attachment; filename="{d.get("filename")}"'})
+
+
+@api.get("/documents/{doc_id}/view")
+async def view_document(doc_id: str, user: dict = Depends(get_current_user)):
+    d = await db.documents.find_one({"_id": ObjectId(doc_id), "owner_id": str(user["_id"])})
+    if not d:
+        raise HTTPException(status_code=404, detail="Documento non trovato")
+    stream = await fs.open_download_stream(d["gridfs_id"])
+    data = await stream.read()
+    return FastAPIResponse(content=data, media_type=d.get("content_type", "application/octet-stream"),
+                           headers={"Content-Disposition": f'inline; filename="{d.get("filename")}"'})
 
 
 @api.delete("/documents/{doc_id}")
@@ -587,6 +714,27 @@ async def delete_signature(sig_id: str, user: dict = Depends(get_current_user)):
     return {"message": "Eliminata"}
 
 
+# ---------- Cron: avvisi scadenze ----------
+@api.post("/cron/expiry-alerts")
+async def cron_expiry_alerts(request: Request, background_tasks: BackgroundTasks):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    secret = os.environ.get("WEBHOOK_CRON_SECRET", "")
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else ""
+    if not secret or not token or not hmac.compare_digest(token, secret):
+        raise HTTPException(status_code=401, detail="Non autorizzato")
+    run_id = request.headers.get("X-Webhook-Id", "")
+    if run_id:
+        if await db.cron_runs.find_one({"_id": run_id}):
+            return {"status": "duplicate"}
+        try:
+            await db.cron_runs.insert_one({"_id": run_id, "at": now_iso()})
+        except Exception:
+            return {"status": "duplicate"}
+    background_tasks.add_task(run_expiry_alerts, db)
+    return {"status": "accepted"}
+
+
 @api.get("/")
 async def root():
     return {"message": "PolizzaHub API"}
@@ -608,6 +756,8 @@ app.add_middleware(
 async def startup():
     await create_auth_indexes(db)
     await seed_admin(db)
+    await db.expiry_alerts_sent.create_index("key", unique=True)
+    await db.cron_runs.create_index("at", expireAfterSeconds=604800)
     logger.info("PolizzaHub startup complete")
 
 

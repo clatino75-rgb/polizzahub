@@ -1,0 +1,22 @@
+{
+  "summary": "Verified new PolizzaHub registry feature end-to-end via Playwright (backend already curl-verified per handoff). PASS: (a) Anagrafiche CRUD + search via nav-anagrafiche-link/anagrafiche-* testids: created 'TEST_Anag Rossi' with fields nome/cf_piva/tipo select ('Cliente')/email; edit changed nome to include 'Edited' (verified in row); search filtered to 1 row; delete via anagrafiche-delete-{id} + anagrafiche-confirm-delete removed the row (toast 'Eliminato'). (b) Compagnie CRUD: created 'TEST_Comp Alpha' via compagnie-* testids. (c) Collaboratori CRUD: created 'TEST_Coll Bianchi' with nome/ruolo/email/telefono/note; edit updated ruolo to 'Senior Broker' and persisted in row. (d) POLICY Collegamenti selectors work: selecting anagrafica auto-filled policy-form-contraente_nome ('TEST_Anag Rossi Edited') and policy-form-contraente_cf_piva ('RSSMRO80A01H501U'); selecting compagnia auto-filled policy-form-compagnia_emissione ('TEST_Comp Alpha'); collaboratore selected. Policy TEST-LINK-001 saved. (e) AUTO-ASSOCIATION KEY REQUIREMENT: created TEST-AUTO-1 and TEST-AUTO-2 both with contraente_nome 'TEST_Verdi Spa' and contraente_cf_piva 'VRDSPA00A00A000A' with NO anagrafica selected. Anagrafica 'TEST_Verdi Spa' auto-created on Anagrafiche page (1 row). GET /api/anagrafiche/{id}/policies returned status 200, count=2, BOTH policies (TEST-AUTO-1 & TEST-AUTO-2) share the same anagrafica_id — previous policy NOT deleted. (f) Compagnia 'TEST_AutoCompagnia' auto-created from compagnia_emissione text (visible on Compagnie page). (g) REGRESSION: policy-edit-{id}, policy-delete-{id}, policy-renew-{id} all present on TEST-AUTO row; policy-form-extract-button (merge from PDF) still rendered in Nuova/Modifica dialog.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_new_features.py"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "EntityManager.jsx (~180 lines) is a clean generic CRUD component with correct __none sentinel handling in Select and empty search debounce. Good.",
+    "PolicyFormDialog.pickAnagrafica falls back to previous form value when picked anagrafica has empty field — correct merge behaviour (no accidental blanking).",
+    "PolicyFormDialog loads anagrafiche/compagnie/collaboratori on open in parallel via Promise.all — good perf. Silent catch is acceptable.",
+    "Minor: EntityManager delete AlertDialogDescription text uses 'puo' without accent ('può') — cosmetic Italian polish.",
+    "Minor: EntityManager Dialog title 'Nuovo elemento' for create mode is generic; could use addLabel (e.g. 'Nuova Anagrafica'). Non-blocking."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested this iteration (pre-verified by main agent)", "frontend": "100% (3 registries CRUD + Collegamenti + auto-association + regression)"},
+  "test_credentials": "clatino75@gmail.com / Polizze2026! — working (login redirects to /).",
+  "seed_data_creation": "Created and LEFT in DB (please cleanup if desired): Compagnia 'TEST_Comp Alpha' (id 6aa566279ea92e9b5acc820d), Compagnia 'TEST_AutoCompagnia' (auto), Collaboratore 'TEST_Coll Bianchi' (id 6aa5662c9ea92e9b5acc820e), Anagrafica 'TEST_Verdi Spa' (id 6aa566399ea92e9b5acc8210), Policies TEST-LINK-001, TEST-AUTO-1, TEST-AUTO-2. Anagrafica 'TEST_Anag Rossi Edited' was deleted by the test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All new registry pages use generic EntityManager component with testids <kind>-page, <kind>-add-button, <kind>-search-input, <kind>-field-<key>, <kind>-save-button, <kind>-row-<id>, <kind>-edit-<id>, <kind>-delete-<id>, <kind>-confirm-delete, <kind>-dialog. Select empty sentinel is '__none'. Policy dialog links: policy-link-anagrafica/compagnia/collaboratore. GET /api/anagrafiche/{id}/policies returns all policies for that anagrafica.",
+  "rca of the issue": "N/A — no failures."
+}

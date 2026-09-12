@@ -3,13 +3,16 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard, FileText, ScanLine, CalendarClock, FileSignature,
-  PenTool, LogOut, Menu, X, ShieldCheck,
+  PenTool, LogOut, Menu, X, ShieldCheck, Users, Building2, Contact,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, tid: "nav-dashboard-link" },
   { to: "/polizze", label: "Polizze", icon: FileText, tid: "nav-policies-link" },
+  { to: "/anagrafiche", label: "Anagrafiche", icon: Users, tid: "nav-anagrafiche-link" },
+  { to: "/compagnie", label: "Compagnie", icon: Building2, tid: "nav-compagnie-link" },
+  { to: "/collaboratori", label: "Collaboratori", icon: Contact, tid: "nav-collaboratori-link" },
   { to: "/estrazione", label: "Estrazione AI", icon: ScanLine, tid: "nav-ai-extract-link" },
   { to: "/scadenziario", label: "Scadenziario", icon: CalendarClock, tid: "nav-agenda-link" },
   { to: "/modelli", label: "Modelli PDF", icon: PenTool, tid: "nav-pdf-editor-link" },

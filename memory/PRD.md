@@ -27,10 +27,21 @@ App italiana per la gestione delle polizze assicurative: estrazione automatica d
 - Modelli PDF: upload, click-to-place campi, salvataggio posizioni, generazione PDF compilato
 - Firma YouSign MOCK: crea richiesta, verifica OTP (4+ cifre), stati, download documento
 - Import/Export/Template Excel
-- Testato al 100% (19/19 backend, flussi frontend E2E)
+
+## Implementato (2026-09-12, iterazione 2)
+- Import Excel con mappatura colonne personalizzate + report righe scartate
+- Rinnovo Rapido polizza (duplica spostando le date +1 anno)
+- Archivio documenti su polizza (GridFS): upload, anteprima in-app, download, elimina
+- Estrazione AI: allega automaticamente il documento scansionato alla polizza
+- "Aggiungi dati da PDF" dentro la scheda polizza: compila solo i campi vuoti (merge, no overwrite)
+- Avvisi email scadenze via cron piattaforma (.emergent/crons.yml, /api/cron/expiry-alerts, digest per proprietario, idempotente)
+- YouSign path reale cablato (create/upload/signer OTP SMS/activate + signature_link), attivo appena si inserisce YOUSIGN_API_KEY
+- Registry separati: Anagrafiche, Compagnie, Collaboratori (CRUD manuale) via /api/registry/{kind}
+- Auto-associazione polizza ad anagrafica esistente (match CF/P.IVA o nome) senza cancellare polizze precedenti; compagnia auto-creata; link anagrafica/compagnia/collaboratore nella scheda polizza
+- Testato al 100% (backend + frontend E2E, iterazioni 1-4)
 
 ## Backlog / prossimi
-- P1: Collegamento reale YouSign (API key OTP) — attualmente MOCK
-- P2: Compilazione campi Excel personalizzati in import (mapping colonne extra)
-- P2: Storage PDF via GridFS/object storage per file grandi
-- P2: Notifiche email automatiche per scadenze imminenti
+- P1: Inserimento reale API key YouSign per firma OTP via SMS
+- P2: Storage documenti su object storage esterno per volumi elevati
+- P2: Vista dettaglio anagrafica con elenco polizze collegate e storico
+- P2: Report righe scartate dettagliato (riga per riga) nell'UI import

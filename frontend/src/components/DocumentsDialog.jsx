@@ -4,13 +4,14 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { UploadCloud, FileText, Download, Trash2, Loader2, FolderArchive } from "lucide-react";
+import { UploadCloud, FileText, Download, Trash2, Loader2, FolderArchive, Eye } from "lucide-react";
 import { toast } from "sonner";
 
 export default function DocumentsDialog({ open, onOpenChange, policy }) {
   const [docs, setDocs] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [preview, setPreview] = useState(null);
   const fileRef = useRef(null);
 
   const load = async () => {
@@ -50,6 +51,12 @@ export default function DocumentsDialog({ open, onOpenChange, policy }) {
     const a = document.createElement("a");
     a.href = url; a.download = d.filename; a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const openPreview = async (d) => {
+    const res = await api.get(`/documents/${d.id}/view`, { responseType: "blob" });
+    const url = URL.createObjectURL(res.data);
+    setPreview({ url, type: d.content_type, name: d.filename });
   };
 
   const del = async (id) => {
@@ -94,6 +101,9 @@ export default function DocumentsDialog({ open, onOpenChange, policy }) {
                 <p className="truncate text-sm font-medium text-slate-700">{d.filename}</p>
                 <p className="text-xs text-slate-400">{fmtSize(d.size)}</p>
               </div>
+              <Button variant="ghost" size="icon" onClick={() => openPreview(d)} data-testid={`document-view-${d.id}`}>
+                <Eye className="h-4 w-4 text-primary" />
+              </Button>
               <Button variant="ghost" size="icon" onClick={() => download(d)} data-testid={`document-download-${d.id}`}>
                 <Download className="h-4 w-4 text-slate-500" />
               </Button>
@@ -104,6 +114,18 @@ export default function DocumentsDialog({ open, onOpenChange, policy }) {
           ))}
         </div>
       </DialogContent>
+
+      <Dialog open={!!preview} onOpenChange={(o) => { if (!o) { if (preview?.url) URL.revokeObjectURL(preview.url); setPreview(null); } }}>
+        <DialogContent className="max-w-3xl" data-testid="document-preview-dialog">
+          <DialogHeader>
+            <DialogTitle className="truncate font-display">{preview?.name}</DialogTitle>
+            <DialogDescription>Anteprima del documento archiviato.</DialogDescription>
+          </DialogHeader>
+          {preview && (preview.type?.startsWith("image/")
+            ? <img src={preview.url} alt={preview.name} className="max-h-[70vh] w-full rounded-lg object-contain" />
+            : <iframe title="anteprima" src={preview.url} className="h-[70vh] w-full rounded-lg border" />)}
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

@@ -72,5 +72,8 @@ export const FIELD_LABEL = Object.fromEntries(ALL_FIELDS.map((f) => [f.key, f.la
 export function emptyPolicy() {
   const o = {};
   ALL_FIELDS.forEach((f) => (o[f.key] = ""));
+  o.anagrafica_id = "";
+  o.compagnia_id = "";
+  o.collaboratore_id = "";
   return o;
 }

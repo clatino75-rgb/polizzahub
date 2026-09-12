@@ -99,3 +99,38 @@ def xlsx_to_policies(file_bytes: bytes, mapping: dict | None = None) -> list:
         if any(record.values()):
             policies.append(record)
     return policies
+
+
+def parse_xlsx_with_report(file_bytes: bytes, mapping: dict | None = None) -> dict:
+    """Like xlsx_to_policies but reports skipped rows with reasons."""
+    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return {"policies": [], "total": 0, "skipped": [], "mapped_columns": 0}
+    header = [str(h).strip() if h is not None else "" for h in rows[0]]
+    col_key = {}
+    for idx, h in enumerate(header):
+        if mapping:
+            key = mapping.get(h) or mapping.get(h.lower().strip())
+            if key and key in KEYS:
+                col_key[idx] = key
+        else:
+            hl = h.lower().strip()
+            if hl in LABEL_TO_KEY:
+                col_key[idx] = LABEL_TO_KEY[hl]
+    policies, skipped = [], []
+    for i, row in enumerate(rows[1:], start=2):
+        record = {}
+        raw_has_data = any(v is not None and str(v).strip() for v in row)
+        for idx, val in enumerate(row):
+            key = col_key.get(idx)
+            if key and val is not None and str(val).strip():
+                record[key] = str(val).strip()
+        if not any(record.values()):
+            reason = "riga vuota" if not raw_has_data else "nessuna colonna associata a un campo valido"
+            skipped.append({"row": i, "reason": reason})
+        else:
+            policies.append(record)
+    return {"policies": policies, "total": len(rows) - 1, "skipped": skipped,
+            "mapped_columns": len(col_key)}

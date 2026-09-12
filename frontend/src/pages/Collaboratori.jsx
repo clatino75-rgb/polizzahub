@@ -1,0 +1,26 @@
+import EntityManager from "@/components/EntityManager";
+
+const config = {
+  endpoint: "/registry/collaboratori",
+  title: "Collaboratori",
+  subtitle: "Collaboratori dell'agenzia, collegabili alle polizze.",
+  testid: "collaboratori",
+  addLabel: "Nuovo Collaboratore",
+  columns: [
+    { key: "nome", label: "Nome" },
+    { key: "ruolo", label: "Ruolo" },
+    { key: "telefono", label: "Telefono" },
+    { key: "email", label: "Email" },
+  ],
+  fields: [
+    { key: "nome", label: "Nome e cognome" },
+    { key: "ruolo", label: "Ruolo" },
+    { key: "email", label: "Email", type: "email" },
+    { key: "telefono", label: "Telefono" },
+    { key: "note", label: "Note", type: "textarea", full: true },
+  ],
+};
+
+export default function Collaboratori() {
+  return <EntityManager config={config} />;
+}

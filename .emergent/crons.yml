@@ -1,0 +1,8 @@
+crons:
+  - name: expiry-alerts
+    description: "Invia ogni giorno alle 7:00 gli avvisi email delle polizze in scadenza (entro 30 e 7 giorni)"
+    cron: "0 7 * * *"
+    endpoint: "{{BASE_URL}}/api/cron/expiry-alerts"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true

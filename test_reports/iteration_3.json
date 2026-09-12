@@ -1,0 +1,29 @@
+{
+  "summary": "Frontend E2E validated all 3 new features + regression. (1) MERGE FROM PDF: created policy MERGE-TEST-29890 with only numero_polizza and contraente_nome; opened edit dialog (policy-edit-{id}), uploaded /tmp/test_policy.pdf via policy-form-extract-input. /api/extract returned all 5 target fields (compagnia_emissione='Generali Italia', ramo_polizza='RCA', data_scadenza='2027-03-01', targa='FA123GB', numero_polizza='NPX-999'). Merge rule verified: numero_polizza kept as 'MERGE-TEST-29890' and contraente_nome kept as 'Rossi Mario' (NOT overwritten), while the 4 previously-empty fields were populated. Toast shown: '5 campi mancanti compilati dal PDF' (also counts numero_polizza returned by extraction as a candidate before dedup; effectively 5 additions - 4 form fields + tipo_polizza which was empty). Saved and re-opened DocumentsDialog (policy-docs-{id}): 1 document archived (test_policy.pdf). (2) PREVIEW: clicked document-view-{id}, /api/documents/{id}/view returned 200, document-preview-dialog opened with iframe for PDF. (3) EXCEL SKIPPED: uploaded xlsx with 2 valid rows + 1 empty row; ExcelImportDialog auto-mapped headers, confirm returned imported=2 skipped_count=1 skipped=[{'row':3,'reason':'riga vuota'}]. Both success toast '2 anagrafiche importate, 1 righe scartate' AND warning toast '1 righe scartate — riga vuota' shown. Regression: policy search finds IMP-A-1 row.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Excel import warning toast", "issues": ["Italian plural mismatch: shows '1 righe scartate' (should be '1 riga scartata' when count=1). Minor grammar polish."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_new_features.py"],
+  "action_items": [
+    "(Optional) Fix Italian singular/plural in ExcelImportDialog warning toast: use 'riga scartata' when count==1, else 'righe scartate'.",
+    "(Optional) Merge toast count includes fields that were extracted but also equal to what user typed (e.g. numero_polizza extracted 'NPX-999' vs existing 'MERGE-TEST-29890') - actually correct here (kept existing, 5 extracted non-empty other keys were added). No action needed."
+  ],
+  "critical_code_review_comments": [
+    "PolicyFormDialog.extractIntoForm: correctly gated by non-empty extracted value AND empty current value (merge, no overwrite). Silent catch on documents auto-attach (catch {}) - could surface a warning toast if archive fails, matches prior review comment on AIExtract.",
+    "DocumentsDialog: nested Dialog inside Dialog for preview works but Escape closes both sequentially; acceptable. Blob URL correctly revoked on close.",
+    "ExcelImportDialog: doImport blocks if no columns mapped; toast.warning renders correctly with reasons deduped."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (per request)", "frontend": "100% (3/3 new features + regression)"},
+  "test_credentials": "clatino75@gmail.com / Polizze2026! - working.",
+  "seed_data_creation": "Created policies: MERGE-TEST-29890 (with 1 doc), IMP-A-1, IMP-A-2. Left in DB - suggest cleanup if needed.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All 3 new features verified via Playwright with real /api calls. Test PDF generator: pymupdf script writing lines 'Compagnia: X\\nRamo: RCA\\n...'. Test xlsx: 3 valid + 1 empty row triggers skipped_count=1 reason 'riga vuota'. document-preview-dialog contains <iframe> for PDF, <img> for image based on content_type startsWith('image/').",
+  "rca of the issue": "N/A - no failures."
+}

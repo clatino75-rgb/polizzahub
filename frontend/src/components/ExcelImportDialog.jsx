@@ -54,6 +54,11 @@ export default function ExcelImportDialog({ open, onOpenChange, file, onDone }) 
     try {
       const { data } = await api.post("/policies/import", fd);
       toast.success(data.message);
+      if (data.skipped_count > 0) {
+        const reasons = [...new Set((data.skipped || []).map((s) => s.reason))].join("; ");
+        const label = data.skipped_count === 1 ? "riga scartata" : "righe scartate";
+        toast.warning(`${data.skipped_count} ${label}${reasons ? ` — ${reasons}` : ""}`);
+      }
       onOpenChange(false);
       onDone?.();
     } catch (e) {

@@ -9,6 +9,9 @@ import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
 import Dashboard from "@/pages/Dashboard";
 import Policies from "@/pages/Policies";
+import Anagrafiche from "@/pages/Anagrafiche";
+import Compagnie from "@/pages/Compagnie";
+import Collaboratori from "@/pages/Collaboratori";
 import AIExtract from "@/pages/AIExtract";
 import Scadenziario from "@/pages/Scadenziario";
 import Templates from "@/pages/Templates";
@@ -35,6 +38,9 @@ function App() {
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/" element={<Protected><Dashboard /></Protected>} />
           <Route path="/polizze" element={<Protected><Policies /></Protected>} />
+          <Route path="/anagrafiche" element={<Protected><Anagrafiche /></Protected>} />
+          <Route path="/compagnie" element={<Protected><Compagnie /></Protected>} />
+          <Route path="/collaboratori" element={<Protected><Collaboratori /></Protected>} />
           <Route path="/estrazione" element={<Protected><AIExtract /></Protected>} />
           <Route path="/scadenziario" element={<Protected><Scadenziario /></Protected>} />
           <Route path="/modelli" element={<Protected><Templates /></Protected>} />
