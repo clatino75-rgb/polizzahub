@@ -55,6 +55,7 @@ export default function Signatures() {
     try {
       const { data } = await api.post("/signatures", { ...form, field_values: {} });
       toast.success(data.message);
+      if (data.signature_link) window.open(data.signature_link, "_blank");
       setForm((f) => ({ ...f, signer_name: "", signer_email: "", signer_phone: "" }));
       loadList();
     } catch (e) {
@@ -162,7 +163,12 @@ export default function Signatures() {
                     <Button variant="outline" size="sm" onClick={() => window.open(`${API}/signatures/${s.id}/document`, "_blank")}>
                       <Eye className="mr-1 h-3.5 w-3.5" /> Documento
                     </Button>
-                    {s.status !== "firmato" && (
+                    {s.signature_link && (
+                      <Button variant="outline" size="sm" onClick={() => window.open(s.signature_link, "_blank")} data-testid={`open-sign-link-${s.id}`}>
+                        <FileSignature className="mr-1 h-3.5 w-3.5" /> Pagina firma
+                      </Button>
+                    )}
+                    {s.status !== "firmato" && s.provider !== "yousign" && (
                       <Button size="sm" onClick={() => { setOtpFor(s.id); setOtp(""); }} data-testid={`verify-otp-${s.id}`}>
                         <KeyRound className="mr-1 h-3.5 w-3.5" /> Verifica OTP
                       </Button>

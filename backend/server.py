@@ -4,22 +4,24 @@ load_dotenv(Path(__file__).parent / '.env')
 
 import os
 import io
+import json
 import base64
 import logging
+import httpx
 from datetime import datetime, timezone, date
 from typing import List, Optional, Annotated
 
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import Response as FastAPIResponse
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
 from pydantic import BaseModel, Field, BeforeValidator, ConfigDict
 from bson import ObjectId
 
 from auth import build_auth, seed_admin, create_auth_indexes
 from extraction import extract_policy_fields, EXTRACT_FIELDS
 from pdf_utils import pdf_to_page_images, fill_pdf, image_to_pdf_bytes
-from excel_utils import policies_to_xlsx, xlsx_to_policies, template_xlsx
+from excel_utils import policies_to_xlsx, xlsx_to_policies, template_xlsx, read_excel_preview
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -27,6 +29,7 @@ logger = logging.getLogger(__name__)
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+fs = AsyncIOMotorGridFSBucket(db, bucket_name="docs")
 
 app = FastAPI(title="PolizzaHub API")
 api = APIRouter(prefix="/api")
@@ -134,11 +137,27 @@ async def export_template(user: dict = Depends(get_current_user)):
                            headers={"Content-Disposition": "attachment; filename=modello_import_polizze.xlsx"})
 
 
-@api.post("/policies/import")
-async def import_policies(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+@api.post("/policies/import/preview")
+async def import_preview(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
     content = await file.read()
     try:
-        records = xlsx_to_policies(content)
+        return read_excel_preview(content)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"File Excel non valido: {e}")
+
+
+@api.post("/policies/import")
+async def import_policies(file: UploadFile = File(...), mapping: str = Form(""),
+                          user: dict = Depends(get_current_user)):
+    content = await file.read()
+    mp = None
+    if mapping:
+        try:
+            mp = json.loads(mapping)
+        except Exception:
+            mp = None
+    try:
+        records = xlsx_to_policies(content, mp)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"File Excel non valido: {e}")
     if not records:
@@ -181,6 +200,88 @@ async def delete_policy(policy_id: str, user: dict = Depends(get_current_user)):
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Polizza non trovata")
     return {"message": "Polizza eliminata"}
+
+
+def _shift_year(iso_date: str, years: int = 1) -> str:
+    try:
+        d = datetime.fromisoformat(iso_date).date()
+        try:
+            return d.replace(year=d.year + years).isoformat()
+        except ValueError:
+            return d.replace(year=d.year + years, day=28).isoformat()
+    except Exception:
+        return ""
+
+
+@api.post("/policies/{policy_id}/renew")
+async def renew_policy(policy_id: str, user: dict = Depends(get_current_user)):
+    pol = await db.policies.find_one({"_id": ObjectId(policy_id), "owner_id": str(user["_id"])})
+    if not pol:
+        raise HTTPException(status_code=404, detail="Polizza non trovata")
+    new = {k: v for k, v in pol.items() if k not in ("_id", "created_at", "updated_at")}
+    old_scad = pol.get("data_scadenza", "")
+    new_effetto = old_scad or date.today().isoformat()
+    new_scad = _shift_year(new_effetto, 1)
+    new["data_effetto"] = new_effetto
+    new["data_scadenza"] = new_scad or new["data_scadenza"]
+    new["owner_id"] = str(user["_id"])
+    new["created_at"] = now_iso()
+    new["updated_at"] = now_iso()
+    res = await db.policies.insert_one(new)
+    saved = await db.policies.find_one({"_id": res.inserted_id})
+    return serialize(saved)
+
+
+# ---------- Documents archive (GridFS) ----------
+@api.post("/policies/{policy_id}/documents")
+async def upload_document(policy_id: str, file: UploadFile = File(...),
+                          user: dict = Depends(get_current_user)):
+    owner = str(user["_id"])
+    pol = await db.policies.find_one({"_id": ObjectId(policy_id), "owner_id": owner})
+    if not pol:
+        raise HTTPException(status_code=404, detail="Polizza non trovata")
+    content = await file.read()
+    if len(content) > 30 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File troppo grande (max 30MB)")
+    ctype = file.content_type or "application/octet-stream"
+    gid = await fs.upload_from_stream(file.filename or "documento", content,
+                                      metadata={"content_type": ctype})
+    doc = {"policy_id": policy_id, "owner_id": owner, "filename": file.filename or "documento",
+           "content_type": ctype, "size": len(content), "gridfs_id": gid, "created_at": now_iso()}
+    res = await db.documents.insert_one(doc)
+    return {"id": str(res.inserted_id), "filename": doc["filename"], "size": doc["size"],
+            "content_type": ctype, "created_at": doc["created_at"]}
+
+
+@api.get("/policies/{policy_id}/documents")
+async def list_documents(policy_id: str, user: dict = Depends(get_current_user)):
+    docs = await db.documents.find({"policy_id": policy_id, "owner_id": str(user["_id"])}).sort("created_at", -1).to_list(500)
+    return [{"id": str(d["_id"]), "filename": d.get("filename"), "size": d.get("size"),
+             "content_type": d.get("content_type"), "created_at": d.get("created_at")} for d in docs]
+
+
+@api.get("/documents/{doc_id}/download")
+async def download_document(doc_id: str, user: dict = Depends(get_current_user)):
+    d = await db.documents.find_one({"_id": ObjectId(doc_id), "owner_id": str(user["_id"])})
+    if not d:
+        raise HTTPException(status_code=404, detail="Documento non trovato")
+    stream = await fs.open_download_stream(d["gridfs_id"])
+    data = await stream.read()
+    return FastAPIResponse(content=data, media_type=d.get("content_type", "application/octet-stream"),
+                           headers={"Content-Disposition": f'attachment; filename="{d.get("filename")}"'})
+
+
+@api.delete("/documents/{doc_id}")
+async def delete_document(doc_id: str, user: dict = Depends(get_current_user)):
+    d = await db.documents.find_one({"_id": ObjectId(doc_id), "owner_id": str(user["_id"])})
+    if not d:
+        raise HTTPException(status_code=404, detail="Documento non trovato")
+    try:
+        await fs.delete(d["gridfs_id"])
+    except Exception:
+        pass
+    await db.documents.delete_one({"_id": d["_id"]})
+    return {"message": "Documento eliminato"}
 
 
 # ---------- Scadenziario ----------
@@ -373,7 +474,49 @@ async def create_signature(body: SignatureRequest, user: dict = Depends(get_curr
     owner = str(user["_id"])
     pdf_bytes = await _build_filled_pdf(body.template_id, owner, body.policy_id, body.field_values)
     yousign_key = os.environ.get("YOUSIGN_API_KEY", "")
-    provider = "yousign" if yousign_key else "mock"
+
+    if yousign_key:
+        base = os.environ.get("YOUSIGN_BASE_URL", "https://api-sandbox.yousign.app/v3").rstrip("/")
+        headers = {"Authorization": f"Bearer {yousign_key}"}
+        names = (body.signer_name or "Firmatario").split(" ", 1)
+        first, last = names[0], (names[1] if len(names) > 1 else "-")
+        try:
+            async with httpx.AsyncClient(timeout=60) as c:
+                r = await c.post(f"{base}/signature_requests", headers=headers,
+                                 json={"name": "Firma polizza", "delivery_mode": "none", "timezone": "Europe/Rome"})
+                r.raise_for_status()
+                rid = r.json()["id"]
+                dr = await c.post(f"{base}/signature_requests/{rid}/documents", headers=headers,
+                                  files={"file": ("documento.pdf", pdf_bytes, "application/pdf")},
+                                  data={"nature": "signable_document", "parse_anchors": "false"})
+                dr.raise_for_status()
+                did = dr.json()["id"]
+                sr = await c.post(f"{base}/signature_requests/{rid}/signers", headers=headers,
+                                  json={"info": {"first_name": first, "last_name": last,
+                                                 "email": body.signer_email or "test@example.com",
+                                                 "phone_number": body.signer_phone, "locale": "it"},
+                                        "signature_level": "electronic_signature",
+                                        "signature_authentication_mode": "otp_sms",
+                                        "fields": [{"type": "signature", "document_id": did,
+                                                    "page": 1, "x": 400, "y": 650, "width": 180, "height": 37}]})
+                sr.raise_for_status()
+                sid_ys = sr.json()["id"]
+                ar = await c.post(f"{base}/signature_requests/{rid}/activate", headers=headers)
+                ar.raise_for_status()
+                act = ar.json()
+        except httpx.HTTPError as e:
+            raise HTTPException(status_code=502, detail=f"Errore YouSign: {e}")
+        signer_obj = next((x for x in act.get("signers", []) if x.get("id") == sid_ys), {})
+        link = signer_obj.get("signature_link")
+        doc = {"owner_id": owner, "template_id": body.template_id, "policy_id": body.policy_id,
+               "signer_name": body.signer_name, "signer_email": body.signer_email, "signer_phone": body.signer_phone,
+               "pdf_b64": base64.b64encode(pdf_bytes).decode(), "status": "inviato", "provider": "yousign",
+               "yousign_request_id": rid, "signature_link": link, "otp_verified": False,
+               "created_at": now_iso(), "events": [{"at": now_iso(), "label": "Inviata a YouSign per firma OTP SMS"}]}
+        res = await db.signatures.insert_one(doc)
+        return {"id": str(res.inserted_id), "status": "inviato", "provider": "yousign",
+                "signature_link": link, "message": "Inviata a YouSign per firma OTP via SMS"}
+
     doc = {
         "owner_id": owner,
         "template_id": body.template_id,
@@ -383,15 +526,15 @@ async def create_signature(body: SignatureRequest, user: dict = Depends(get_curr
         "signer_phone": body.signer_phone,
         "pdf_b64": base64.b64encode(pdf_bytes).decode(),
         "status": "inviato",
-        "provider": provider,
+        "provider": "mock",
+        "signature_link": None,
         "otp_verified": False,
         "created_at": now_iso(),
         "events": [{"at": now_iso(), "label": "Richiesta creata e inviata per firma OTP"}],
     }
     res = await db.signatures.insert_one(doc)
-    return {"id": str(res.inserted_id), "status": doc["status"], "provider": provider,
-            "message": "Richiesta di firma inviata (simulazione OTP)" if provider == "mock"
-                       else "Inviata a YouSign"}
+    return {"id": str(res.inserted_id), "status": doc["status"], "provider": "mock",
+            "signature_link": None, "message": "Richiesta di firma inviata (simulazione OTP)"}
 
 
 @api.get("/signatures")
@@ -402,6 +545,7 @@ async def list_signatures(user: dict = Depends(get_current_user)):
         out.append({"id": str(d["_id"]), "signer_name": d.get("signer_name"),
                     "signer_email": d.get("signer_email"), "signer_phone": d.get("signer_phone"),
                     "status": d.get("status"), "provider": d.get("provider"),
+                    "signature_link": d.get("signature_link"),
                     "otp_verified": d.get("otp_verified", False),
                     "created_at": d.get("created_at"), "events": d.get("events", [])})
     return out

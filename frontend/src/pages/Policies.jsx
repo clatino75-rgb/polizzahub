@@ -12,8 +12,10 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import PolicyFormDialog from "@/components/PolicyFormDialog";
+import DocumentsDialog from "@/components/DocumentsDialog";
+import ExcelImportDialog from "@/components/ExcelImportDialog";
 import {
-  Plus, Search, Pencil, Trash2, Download, Upload, FileSpreadsheet, FileText,
+  Plus, Search, Pencil, Trash2, Download, Upload, FileSpreadsheet, FileText, RefreshCw, Paperclip,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -24,6 +26,9 @@ export default function Policies() {
   const [editing, setEditing] = useState(null);
   const [delId, setDelId] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [docFor, setDocFor] = useState(null);
+  const [mapFile, setMapFile] = useState(null);
+  const [mapOpen, setMapOpen] = useState(false);
   const fileRef = useRef(null);
 
   const load = async (q = "") => {
@@ -79,20 +84,22 @@ export default function Policies() {
     URL.revokeObjectURL(url);
   };
 
-  const onImport = async (e) => {
+  const renew = async (id) => {
+    try {
+      await api.post(`/policies/${id}/renew`);
+      toast.success("Polizza rinnovata: creata copia con nuove date");
+      load(search);
+    } catch {
+      toast.error("Rinnovo non riuscito");
+    }
+  };
+
+  const onImport = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const fd = new FormData();
-    fd.append("file", file);
-    try {
-      const { data } = await api.post(`/policies/import`, fd);
-      toast.success(data.message);
-      load(search);
-    } catch (err) {
-      toast.error(err.response?.data?.detail || "Import non riuscito");
-    } finally {
-      if (fileRef.current) fileRef.current.value = "";
-    }
+    setMapFile(file);
+    setMapOpen(true);
+    if (fileRef.current) fileRef.current.value = "";
   };
 
   return (
@@ -157,6 +164,14 @@ export default function Policies() {
                   <TableCell>{p.data_scadenza || "—"}</TableCell>
                   <TableCell>{p.frazionamento || "—"}</TableCell>
                   <TableCell className="text-right">
+                    <Button variant="ghost" size="icon" data-testid={`policy-docs-${p.id}`}
+                      onClick={() => setDocFor(p)} title="Documenti archiviati">
+                      <Paperclip className="h-4 w-4 text-slate-500" />
+                    </Button>
+                    <Button variant="ghost" size="icon" data-testid={`policy-renew-${p.id}`}
+                      onClick={() => renew(p.id)} title="Rinnovo rapido">
+                      <RefreshCw className="h-4 w-4 text-primary" />
+                    </Button>
                     <Button variant="ghost" size="icon" data-testid={`policy-edit-${p.id}`}
                       onClick={() => { setEditing(p); setDialogOpen(true); }}>
                       <Pencil className="h-4 w-4 text-slate-500" />
@@ -174,6 +189,10 @@ export default function Policies() {
       </Card>
 
       <PolicyFormDialog open={dialogOpen} onOpenChange={setDialogOpen} initial={editing} onSave={save} />
+
+      <DocumentsDialog open={!!docFor} onOpenChange={(o) => !o && setDocFor(null)} policy={docFor} />
+
+      <ExcelImportDialog open={mapOpen} onOpenChange={setMapOpen} file={mapFile} onDone={() => load(search)} />
 
       <AlertDialog open={!!delId} onOpenChange={(o) => !o && setDelId(null)}>
         <AlertDialogContent>

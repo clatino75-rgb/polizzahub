@@ -58,17 +58,37 @@ def template_xlsx() -> bytes:
     return policies_to_xlsx([])
 
 
-def xlsx_to_policies(file_bytes: bytes) -> list:
+def read_excel_preview(file_bytes: bytes) -> dict:
+    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return {"headers": [], "sample": [], "auto_map": {}, "field_options": FIELD_LABELS}
+    headers = [str(h).strip() if h is not None else "" for h in rows[0]]
+    sample = []
+    for row in rows[1:6]:
+        sample.append([("" if v is None else str(v)) for v in row])
+    auto_map = {h: LABEL_TO_KEY.get(h.lower().strip(), "") for h in headers}
+    return {"headers": headers, "sample": sample, "auto_map": auto_map, "field_options": FIELD_LABELS}
+
+
+def xlsx_to_policies(file_bytes: bytes, mapping: dict | None = None) -> list:
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
     ws = wb.active
     rows = list(ws.iter_rows(values_only=True))
     if not rows:
         return []
-    header = [str(h).lower().strip() if h is not None else "" for h in rows[0]]
+    header = [str(h).strip() if h is not None else "" for h in rows[0]]
     col_key = {}
     for idx, h in enumerate(header):
-        if h in LABEL_TO_KEY:
-            col_key[idx] = LABEL_TO_KEY[h]
+        if mapping:
+            key = mapping.get(h) or mapping.get(h.lower().strip())
+            if key and key in KEYS:
+                col_key[idx] = key
+        else:
+            hl = h.lower().strip()
+            if hl in LABEL_TO_KEY:
+                col_key[idx] = LABEL_TO_KEY[hl]
     policies = []
     for row in rows[1:]:
         record = {}

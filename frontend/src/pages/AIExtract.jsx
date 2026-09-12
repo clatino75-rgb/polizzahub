@@ -44,8 +44,14 @@ export default function AIExtract() {
 
   const saveExtracted = async (form) => {
     try {
-      await api.post("/policies", form);
-      toast.success("Polizza salvata");
+      const { data } = await api.post("/policies", form);
+      if (file && data?.id) {
+        const fd = new FormData();
+        fd.append("file", file);
+        try { await api.post(`/policies/${data.id}/documents`, fd); }
+        catch { toast.warning("Polizza salvata, ma l'archiviazione del documento non è riuscita"); }
+      }
+      toast.success("Polizza salvata e documento archiviato");
       setDialogOpen(false);
       setFields(null);
       setFile(null);
