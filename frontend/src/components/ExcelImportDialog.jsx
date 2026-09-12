@@ -18,10 +18,12 @@ export default function ExcelImportDialog({ open, onOpenChange, file, onDone }) 
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState(null);
 
   useEffect(() => {
     if (!open || !file) return;
     setPreview(null);
+    setResult(null);
     setLoading(true);
     const fd = new FormData();
     fd.append("file", file);
@@ -54,19 +56,16 @@ export default function ExcelImportDialog({ open, onOpenChange, file, onDone }) 
     try {
       const { data } = await api.post("/policies/import", fd);
       toast.success(data.message);
-      if (data.skipped_count > 0) {
-        const reasons = [...new Set((data.skipped || []).map((s) => s.reason))].join("; ");
-        const label = data.skipped_count === 1 ? "riga scartata" : "righe scartate";
-        toast.warning(`${data.skipped_count} ${label}${reasons ? ` — ${reasons}` : ""}`);
-      }
-      onOpenChange(false);
       onDone?.();
+      setResult(data);
     } catch (e) {
       toast.error(e.response?.data?.detail || "Import non riuscito");
     } finally {
       setImporting(false);
     }
   };
+
+  const close = () => { onOpenChange(false); };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -77,13 +76,15 @@ export default function ExcelImportDialog({ open, onOpenChange, file, onDone }) 
           </DialogTitle>
           <DialogDescription>Abbina le colonne del file ai campi della polizza prima di importare.</DialogDescription>
         </DialogHeader>
+        {!result && (
         <p className="text-xs text-slate-500">
           Abbina ogni colonna del tuo file ai campi della polizza. Le colonne riconosciute sono già preselezionate.
         </p>
+        )}
 
         {loading && <div className="py-10 text-center text-slate-400"><Loader2 className="mx-auto h-6 w-6 animate-spin" /></div>}
 
-        {preview && !loading && (
+        {preview && !loading && !result && (
           <div className="max-h-[50vh] space-y-2 overflow-y-auto scrollbar-thin pr-1">
             {preview.headers.length === 0 && <p className="text-sm text-slate-400">Nessuna colonna trovata.</p>}
             {preview.headers.map((h, i) => (
@@ -108,11 +109,49 @@ export default function ExcelImportDialog({ open, onOpenChange, file, onDone }) 
           </div>
         )}
 
+        {result && (
+          <div className="space-y-4" data-testid="import-result-report">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-lg border border-slate-100 p-3 text-center">
+                <p className="text-xs text-slate-400">Righe totali</p>
+                <p className="font-display text-2xl font-bold text-slate-900">{result.total}</p>
+              </div>
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3 text-center">
+                <p className="text-xs text-emerald-600">Importate</p>
+                <p className="font-display text-2xl font-bold text-emerald-700" data-testid="import-imported-count">{result.imported}</p>
+              </div>
+              <div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3 text-center">
+                <p className="text-xs text-amber-600">Scartate</p>
+                <p className="font-display text-2xl font-bold text-amber-700" data-testid="import-skipped-count">{result.skipped_count}</p>
+              </div>
+            </div>
+            {result.skipped_count > 0 && (
+              <div>
+                <p className="mb-2 text-sm font-semibold text-slate-700">Righe scartate</p>
+                <div className="max-h-[40vh] space-y-1.5 overflow-y-auto scrollbar-thin pr-1">
+                  {result.skipped.map((s, i) => (
+                    <div key={i} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2 text-sm" data-testid={`skipped-row-${s.row}`}>
+                      <span className="font-medium text-slate-700">Riga {s.row}</span>
+                      <span className="text-xs text-amber-700">{s.reason}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Annulla</Button>
-          <Button onClick={doImport} disabled={importing || loading} data-testid="excel-import-confirm-button">
-            {importing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Importa
-          </Button>
+          {result ? (
+            <Button onClick={close} data-testid="import-close-button">Chiudi</Button>
+          ) : (
+            <>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>Annulla</Button>
+              <Button onClick={doImport} disabled={importing || loading} data-testid="excel-import-confirm-button">
+                {importing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Importa
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

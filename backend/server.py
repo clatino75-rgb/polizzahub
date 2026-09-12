@@ -68,6 +68,7 @@ class Policy(BaseModel):
     anagrafica_id: str = ""
     compagnia_id: str = ""
     collaboratore_id: str = ""
+    proprietario_anagrafica_id: str = ""
     note: str = ""
 
 
@@ -135,6 +136,26 @@ async def _link_entities(owner: str, doc: dict):
                       "telefono": "", "tipo": "Contraente", "note": "", "created_at": now_iso()}
                 r = await db.anagrafiche.insert_one(na)
                 doc["anagrafica_id"] = str(r.inserted_id)
+    if not doc.get("proprietario_anagrafica_id"):
+        cf = (doc.get("proprietario_cf_piva") or "").strip()
+        nome = (doc.get("proprietario_nome") or "").strip()
+        if cf or nome:
+            match = None
+            for a in await db.anagrafiche.find({"owner_id": owner}).to_list(5000):
+                acf = (a.get("cf_piva") or "").strip().lower()
+                anome = (a.get("nome") or "").strip().lower()
+                if cf and acf and acf == cf.lower():
+                    match = a; break
+                if (not cf) and nome and anome == nome.lower():
+                    match = a; break
+            if match:
+                doc["proprietario_anagrafica_id"] = str(match["_id"])
+            else:
+                na = {"owner_id": owner, "nome": nome, "cf_piva": cf,
+                      "indirizzo": doc.get("proprietario_indirizzo", ""), "email": "",
+                      "telefono": "", "tipo": "Proprietario", "note": "", "created_at": now_iso()}
+                r = await db.anagrafiche.insert_one(na)
+                doc["proprietario_anagrafica_id"] = str(r.inserted_id)
     if not doc.get("compagnia_id"):
         cn = (doc.get("compagnia_emissione") or "").strip()
         if cn:
@@ -202,6 +223,38 @@ async def delete_registry(kind: str, item_id: str, user: dict = Depends(get_curr
 async def anagrafica_policies(item_id: str, user: dict = Depends(get_current_user)):
     docs = await db.policies.find({"owner_id": str(user["_id"]), "anagrafica_id": item_id}).sort("created_at", -1).to_list(1000)
     return [serialize(d) for d in docs]
+
+
+@api.get("/anagrafiche/{item_id}/detail")
+async def anagrafica_detail(item_id: str, user: dict = Depends(get_current_user)):
+    owner = str(user["_id"])
+    a = await db.anagrafiche.find_one({"_id": ObjectId(item_id), "owner_id": owner})
+    if not a:
+        raise HTTPException(status_code=404, detail="Anagrafica non trovata")
+    pols = await db.policies.find({
+        "owner_id": owner,
+        "$or": [{"anagrafica_id": item_id}, {"proprietario_anagrafica_id": item_id}],
+    }).sort("data_scadenza", 1).to_list(2000)
+    today = date.today()
+    total = 0.0
+    upcoming = []
+    for p in pols:
+        try:
+            total += float(str(p.get("premio_lordo_annuale") or 0).replace(",", "."))
+        except Exception:
+            pass
+        scad = p.get("data_scadenza", "")
+        if scad:
+            try:
+                if (date.fromisoformat(scad) - today).days >= 0:
+                    upcoming.append(serialize(p))
+            except Exception:
+                pass
+    return {
+        "anagrafica": serialize(a),
+        "policies": [serialize(p) for p in pols],
+        "stats": {"count": len(pols), "premio_totale": round(total, 2), "upcoming": upcoming[:5]},
+    }
 
 
 # ---------- Policies ----------
@@ -282,7 +335,7 @@ async def import_policies(file: UploadFile = File(...), mapping: str = Form(""),
         await db.policies.insert_one(doc)
         inserted += 1
     skipped_count = len(report["skipped"])
-    msg = f"{inserted} anagrafiche importate"
+    msg = f"{inserted} polizze importate"
     if skipped_count:
         msg += f", {skipped_count} righe scartate"
     return {"message": msg, "imported": inserted, "total": report["total"],

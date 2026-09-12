@@ -43,5 +43,10 @@ App italiana per la gestione delle polizze assicurative: estrazione automatica d
 ## Backlog / prossimi
 - P1: Inserimento reale API key YouSign per firma OTP via SMS
 - P2: Storage documenti su object storage esterno per volumi elevati
-- P2: Vista dettaglio anagrafica con elenco polizze collegate e storico
-- P2: Report righe scartate dettagliato (riga per riga) nell'UI import
+- P2: Report righe scartate esportabile
+
+## Implementato (2026-09-12, iterazione 3)
+- Scheda Cliente: apertura anagrafica con polizze collegate (come contraente o proprietario), premio totale e prossime scadenze (GET /api/anagrafiche/{id}/detail)
+- Proprietario separato: campo proprietario_anagrafica_id sulla polizza + select dedicata; auto-creazione anagrafica proprietario distinta (tipo Proprietario)
+- Report import Excel riga-per-riga (totali/importate/scartate + elenco righe scartate con motivo)
+- Testato al 100% (iterazioni 1-5)

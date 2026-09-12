@@ -75,5 +75,6 @@ export function emptyPolicy() {
   o.anagrafica_id = "";
   o.compagnia_id = "";
   o.collaboratore_id = "";
+  o.proprietario_anagrafica_id = "";
   return o;
 }

@@ -1,0 +1,26 @@
+{
+  "summary": "Verified all 3 new PolizzaHub features end-to-end via Playwright with admin login. (1) SCHEDA CLIENTE: Anagrafiche rows now have anagrafiche-view-{id} eye button; opens cliente-detail-dialog with cliente-stat-count=1, cliente-stat-premio=€500, and cliente-policy-{id} row for the linked policy. (2) PROPRIETARIO SEPARATO: Nuova Polizza dialog Collegamenti shows all 4 selects (policy-link-anagrafica, policy-link-proprietario, policy-link-compagnia, policy-link-collaboratore). Saving a policy with contraente_nome 'CTR Uno'/CF 'CTRUNO00A00A000A' + proprietario_nome 'PRP Due'/CF 'PRPDUE00A00A000A' (no selects) auto-created TWO DISTINCT anagrafiche (different IDs 6aa57d286c91576ab0d5a611 vs ...612) with tipo 'Contraente' and 'Proprietario' respectively; both anagrafiche detail views show the same policy linked with count=1 and premio=€500. (3) REPORT IMPORT: Uploading an xlsx with 2 valid rows + 1 empty row shows import-result-report with import-imported-count=2, import-skipped-count=1, and skipped-row-4 entry with reason 'riga vuota'. import-close-button closes the dialog and the 2 imported policies (TEST-IMP-A, TEST-IMP-B) appear in the list. Regression: policy CRUD, delete, and search still work; existing PolicyFormDialog fields all render correctly with the new 4-select Collegamenti panel.",
+  "backend_issues": {"critical": [], "minor": [
+    {"endpoint": "/api/policies/import", "issue": "Response 'message' is literally 'N anagrafiche importate' — the noun 'anagrafiche' should be 'polizze' (this is a policy import endpoint, not anagrafiche). Also surfaces in the toast."}
+  ]},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_new_features.py"],
+  "action_items": [
+    "Optional cosmetic: change server.py line 338 msg from '{inserted} anagrafiche importate' to '{inserted} polizze importate' to match the toast context (import is for polizze)."
+  ],
+  "critical_code_review_comments": [
+    "server.py _link_entities correctly upserts a distinct proprietario anagrafica with tipo 'Proprietario' when proprietario CF differs from contraente CF — good.",
+    "GET /api/anagrafiche/{id}/detail uses $or on anagrafica_id/proprietario_anagrafica_id — correct join logic, matching both roles.",
+    "ClienteDetailDialog assumes stats.premio_totale/upcoming/count always defined; there is no null-guard if the API returns partial payload — minor but non-blocking since backend always returns them.",
+    "ExcelImportDialog: after successful import, result dialog is shown only via setResult(data). onDone?.() fires BEFORE setResult so parent list refresh happens while user still sees the report — fine (list appears refreshed once dialog closed).",
+    "PolicyFormDialog.pickProprietario merge is symmetric to pickAnagrafica and preserves existing form values when picked entity has empty fields — good."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not re-run this iteration (backend curl-verified by main agent per handoff)", "frontend": "100% (3/3 new features + regression)"},
+  "test_credentials": "clatino75@gmail.com / Polizze2026! — working",
+  "seed_data_creation": "Created during test and CLEANED UP (deleted 4 TEST-* policies via API). Auto-created anagrafiche 'CTR Uno' and 'PRP Due' were LEFT in DB (no delete cascade endpoint used).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "New testids: cliente-detail-dialog, cliente-stat-count/premio/upcoming, cliente-policy-{id}, anagrafiche-view-{id}, policy-link-proprietario, import-result-report, import-imported-count, import-skipped-count, skipped-row-{rowNumber}, import-close-button. Empty select sentinel is '__none'. /api/anagrafiche/{id}/detail returns {anagrafica, policies, stats:{count,premio_totale,upcoming}}. Import response includes total/imported/skipped_count/skipped[{row,reason}].",
+  "rca of the issue": "N/A — no failures."
+}

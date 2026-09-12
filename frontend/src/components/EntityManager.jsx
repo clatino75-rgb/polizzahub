@@ -18,10 +18,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, Pencil, Trash2, Loader2 } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Loader2, Eye } from "lucide-react";
 import { toast } from "sonner";
 
-export default function EntityManager({ config }) {
+export default function EntityManager({ config, onView }) {
   const { endpoint, title, subtitle, columns, fields, testid, addLabel } = config;
   const [items, setItems] = useState([]);
   const [search, setSearch] = useState("");
@@ -114,6 +114,11 @@ export default function EntityManager({ config }) {
                     </TableCell>
                   ))}
                   <TableCell className="text-right">
+                    {onView && (
+                      <Button variant="ghost" size="icon" onClick={() => onView(it)} data-testid={`${testid}-view-${it.id}`}>
+                        <Eye className="h-4 w-4 text-primary" />
+                      </Button>
+                    )}
                     <Button variant="ghost" size="icon" onClick={() => openEdit(it)} data-testid={`${testid}-edit-${it.id}`}>
                       <Pencil className="h-4 w-4 text-slate-500" />
                     </Button>

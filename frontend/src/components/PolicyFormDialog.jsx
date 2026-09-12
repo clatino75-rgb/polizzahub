@@ -57,6 +57,16 @@ export default function PolicyFormDialog({ open, onOpenChange, initial, onSave }
     setForm((f) => ({ ...f, compagnia_id: v, compagnia_emissione: c?.nome || f.compagnia_emissione }));
   };
   const pickCollaboratore = (v) => setForm((f) => ({ ...f, collaboratore_id: v === "__none" ? "" : v }));
+  const pickProprietario = (v) => {
+    if (v === "__none") { setForm((f) => ({ ...f, proprietario_anagrafica_id: "" })); return; }
+    const a = anagrafiche.find((x) => x.id === v);
+    setForm((f) => ({
+      ...f, proprietario_anagrafica_id: v,
+      proprietario_nome: a?.nome || f.proprietario_nome,
+      proprietario_cf_piva: a?.cf_piva || f.proprietario_cf_piva,
+      proprietario_indirizzo: a?.indirizzo || f.proprietario_indirizzo,
+    }));
+  };
 
   const extractIntoForm = async (file) => {
     if (!file) return;
@@ -129,13 +139,23 @@ export default function PolicyFormDialog({ open, onOpenChange, initial, onSave }
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-primary">
             <Link2 className="h-4 w-4" /> Collegamenti
           </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <Label className="text-xs text-slate-500">Anagrafica cliente</Label>
+              <Label className="text-xs text-slate-500">Anagrafica contraente</Label>
               <Select value={form.anagrafica_id || "__none"} onValueChange={pickAnagrafica}>
                 <SelectTrigger className="mt-1" data-testid="policy-link-anagrafica"><SelectValue placeholder="Nuova / manuale" /></SelectTrigger>
                 <SelectContent className="max-h-64">
                   <SelectItem value="__none">— Nuova / manuale —</SelectItem>
+                  {anagrafiche.map((a) => <SelectItem key={a.id} value={a.id}>{a.nome || a.cf_piva || a.id}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs text-slate-500">Anagrafica proprietario</Label>
+              <Select value={form.proprietario_anagrafica_id || "__none"} onValueChange={pickProprietario}>
+                <SelectTrigger className="mt-1" data-testid="policy-link-proprietario"><SelectValue placeholder="Come contraente / manuale" /></SelectTrigger>
+                <SelectContent className="max-h-64">
+                  <SelectItem value="__none">— Come contraente / manuale —</SelectItem>
                   {anagrafiche.map((a) => <SelectItem key={a.id} value={a.id}>{a.nome || a.cf_piva || a.id}</SelectItem>)}
                 </SelectContent>
               </Select>

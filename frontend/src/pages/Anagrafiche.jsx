@@ -1,4 +1,6 @@
+import { useState } from "react";
 import EntityManager from "@/components/EntityManager";
+import ClienteDetailDialog from "@/components/ClienteDetailDialog";
 
 const config = {
   endpoint: "/registry/anagrafiche",
@@ -25,5 +27,11 @@ const config = {
 };
 
 export default function Anagrafiche() {
-  return <EntityManager config={config} />;
+  const [detailId, setDetailId] = useState(null);
+  return (
+    <>
+      <EntityManager config={config} onView={(it) => setDetailId(it.id)} />
+      <ClienteDetailDialog id={detailId} open={!!detailId} onOpenChange={(o) => !o && setDetailId(null)} />
+    </>
+  );
 }
