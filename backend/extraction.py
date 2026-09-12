@@ -19,6 +19,7 @@ EXTRACT_FIELDS = [
     "premio_netto_semestrale", "premio_lordo_semestrale",
     "data_immatricolazione", "data_voltura", "targa",
     "tipo_polizza", "ramo_polizza", "compagnia_emissione", "agenzia_emissione",
+    "scatola_nera",
 ]
 
 SYSTEM_MSG = (
@@ -28,6 +29,10 @@ SYSTEM_MSG = (
     "senza testo aggiuntivo, senza markdown. Le date devono essere in formato YYYY-MM-DD. "
     "Gli importi come numeri con punto decimale senza simboli di valuta (es. 1234.56). "
     "Il frazionamento deve essere uno tra: Annuale, Semestrale, Trimestrale, Mensile. "
+    "Estrai anche l'elenco delle garanzie (coperture) come array 'garanzie': ogni voce con "
+    "'nome', 'premio_netto' e 'premio_lordo' (numeri con punto decimale, senza simboli). "
+    "Indica 'scatola_nera' con 'Sì' oppure 'No' in base alla presenza di box/scatola nera/"
+    "dispositivo satellitare nella polizza. "
     "Se un campo non e presente nel documento, usa stringa vuota."
 )
 
@@ -75,7 +80,9 @@ async def extract_policy_fields(file_bytes: bytes, filename: str) -> dict:
         "Estrai i seguenti campi da questa polizza assicurativa e restituisci un JSON con queste chiavi esatte:\n"
         + ", ".join(EXTRACT_FIELDS)
         + "\n\nRegole: date in YYYY-MM-DD, importi numerici, campi mancanti = \"\". "
-        "data_immatricolazione, data_voltura e targa solo se e una polizza RCA/auto."
+        "data_immatricolazione, data_voltura e targa solo se e una polizza RCA/auto. "
+        "Includi inoltre 'garanzie' come array di oggetti {nome, premio_netto, premio_lordo} "
+        "e 'scatola_nera' con valore 'Sì' o 'No'."
     )
     image_contents = [ImageContent(image_base64=img) for img in images]
     msg = UserMessage(text=prompt, file_contents=image_contents)
@@ -96,4 +103,26 @@ async def extract_policy_fields(file_bytes: bytes, filename: str) -> dict:
         logger.error(f"JSON parse error: {e} | raw: {response[:400]}")
         raise RuntimeError("Estrazione non riuscita: risposta non valida")
 
-    return {k: (str(data.get(k, "")) if data.get(k) is not None else "") for k in EXTRACT_FIELDS}
+    result = {k: (str(data.get(k, "")) if data.get(k) is not None else "") for k in EXTRACT_FIELDS}
+    sn = result.get("scatola_nera", "").strip().lower()
+    if sn in ("si", "sì", "s", "true", "presente", "yes"):
+        result["scatola_nera"] = "Sì"
+    elif sn in ("no", "n", "false", "assente"):
+        result["scatola_nera"] = "No"
+    else:
+        result["scatola_nera"] = ""
+    gar = data.get("garanzie")
+    garanzie = []
+    if isinstance(gar, list):
+        for g in gar:
+            if isinstance(g, dict):
+                nome = str(g.get("nome", "") or "").strip()
+                if not nome:
+                    continue
+                garanzie.append({
+                    "nome": nome,
+                    "premio_netto": str(g.get("premio_netto", "") or ""),
+                    "premio_lordo": str(g.get("premio_lordo", "") or ""),
+                })
+    result["garanzie"] = garanzie
+    return result

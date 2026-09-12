@@ -13,7 +13,7 @@ import { FIELD_SECTIONS, emptyPolicy } from "@/lib/fields";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import * as Icons from "lucide-react";
-import { Loader2, ScanLine, Link2 } from "lucide-react";
+import { Loader2, ScanLine, Link2, Plus, Trash2, ShieldCheck } from "lucide-react";
 
 export default function PolicyFormDialog({ open, onOpenChange, initial, onSave }) {
   const [form, setForm] = useState(emptyPolicy());
@@ -57,6 +57,9 @@ export default function PolicyFormDialog({ open, onOpenChange, initial, onSave }
     setForm((f) => ({ ...f, compagnia_id: v, compagnia_emissione: c?.nome || f.compagnia_emissione }));
   };
   const pickCollaboratore = (v) => setForm((f) => ({ ...f, collaboratore_id: v === "__none" ? "" : v }));
+  const addGaranzia = () => setForm((f) => ({ ...f, garanzie: [...(f.garanzie || []), { nome: "", premio_netto: "", premio_lordo: "" }] }));
+  const updateGaranzia = (i, k, v) => setForm((f) => { const g = [...(f.garanzie || [])]; g[i] = { ...g[i], [k]: v }; return { ...f, garanzie: g }; });
+  const removeGaranzia = (i) => setForm((f) => ({ ...f, garanzie: (f.garanzie || []).filter((_, idx) => idx !== i) }));
   const pickProprietario = (v) => {
     if (v === "__none") { setForm((f) => ({ ...f, proprietario_anagrafica_id: "" })); return; }
     const a = anagrafiche.find((x) => x.id === v);
@@ -75,14 +78,24 @@ export default function PolicyFormDialog({ open, onOpenChange, initial, onSave }
     fd.append("file", file);
     try {
       const { data } = await api.post("/extract", fd);
+      const fields = data.fields || {};
+      const { garanzie, ...rest } = fields;
+      const norm = (s) => { const v = String(s || "").trim().toLowerCase(); if (["si", "sì", "s", "presente", "true"].includes(v)) return "Sì"; if (["no", "n", "assente", "false"].includes(v)) return "No"; return rest.scatola_nera || ""; };
+      if (rest.scatola_nera) rest.scatola_nera = norm(rest.scatola_nera);
       const next = { ...form };
       let added = 0;
-      Object.entries(data.fields || {}).forEach(([k, v]) => {
+      Object.entries(rest).forEach(([k, v]) => {
         if (v && String(v).trim() && !String(next[k] || "").trim()) {
           next[k] = String(v);
           added += 1;
         }
       });
+      if (Array.isArray(garanzie) && garanzie.length && (!next.garanzie || next.garanzie.length === 0)) {
+        next.garanzie = garanzie.map((g) => ({
+          nome: g.nome || "", premio_netto: String(g.premio_netto || ""), premio_lordo: String(g.premio_lordo || ""),
+        }));
+        added += garanzie.length;
+      }
       setForm(next);
       if (initial?.id) {
         const fd2 = new FormData();
@@ -219,6 +232,30 @@ export default function PolicyFormDialog({ open, onOpenChange, initial, onSave }
               </div>
             );
           })}
+
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                <ShieldCheck className="h-4 w-4" /> Garanzie
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={addGaranzia} data-testid="garanzia-add-button">
+                <Plus className="mr-1 h-4 w-4" /> Aggiungi garanzia
+              </Button>
+            </div>
+            {(!form.garanzie || form.garanzie.length === 0) && (
+              <p className="text-xs text-slate-400">Nessuna garanzia. Aggiungine una o estraila dal PDF.</p>
+            )}
+            {(form.garanzie || []).map((g, i) => (
+              <div key={i} className="mb-2 grid grid-cols-1 gap-2 rounded-lg border border-slate-100 p-2 sm:grid-cols-[1fr_120px_120px_auto]" data-testid={`garanzia-row-${i}`}>
+                <Input placeholder="Nome garanzia" value={g.nome || ""} onChange={(e) => updateGaranzia(i, "nome", e.target.value)} data-testid={`garanzia-nome-${i}`} />
+                <Input placeholder="Premio netto" value={g.premio_netto || ""} onChange={(e) => updateGaranzia(i, "premio_netto", e.target.value)} data-testid={`garanzia-netto-${i}`} />
+                <Input placeholder="Premio lordo" value={g.premio_lordo || ""} onChange={(e) => updateGaranzia(i, "premio_lordo", e.target.value)} data-testid={`garanzia-lordo-${i}`} />
+                <Button type="button" variant="ghost" size="icon" onClick={() => removeGaranzia(i)} data-testid={`garanzia-remove-${i}`}>
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
+            ))}
+          </div>
         </div>
 
         <DialogFooter>

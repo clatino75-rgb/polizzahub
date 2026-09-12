@@ -1,0 +1,35 @@
+{
+  "summary": "Frontend E2E for Iter7 (Garanzie editor, Scatola Nera, AI extraction + merge). Backend already curl-verified by main agent. Manual garanzie CRUD + scatola_nera persistence, AI extraction display (no crash), verify-and-save flow, and PDF merge into empty policy all work. Found one real inconsistency bug: backend returns scatola_nera='Si' (no accent) while frontend Select options are 'Sì'/'No', so the value does not display in the dropdown after AI extraction/merge and is persisted as 'Si' (mismatched with manual 'Sì').",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/extract", "issue": "Returns scatola_nera='Si' (without grave accent) which does not match frontend Select options ['Sì','No']. Should return 'Sì' to be consistent with Policy model values written from the manual form."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "PolicyFormDialog (scatola_nera select)", "issue": "After AI extraction or PDF merge, the scatola_nera Select is visually empty because the extracted value 'Si' does not match option 'Sì'. On save the policy is persisted with scatola_nera='Si', while manually created policies use 'Sì' — inconsistent data.", "selector": "[data-testid='policy-form-scatola_nera']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "AI Extract -> verify & save + PDF merge into existing policy", "issue": "Scatola Nera value from extraction ('Si') is not normalized to the select's option ('Sì'). Suggested fix (any one): 1) backend/extraction.py prompt/normalizer emit 'Sì'; 2) PolicyFormDialog.extractIntoForm map 'Si'->'Sì' before merging; 3) add 'Si' as accepted option value.", "affected_selectors": ["[data-testid='policy-form-scatola_nera']", "[data-testid='extracted-scatola_nera']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter6_features.py"],
+  "action_items": [
+    "Normalize scatola_nera to 'Sì' (with accent) between backend extraction and frontend Select options — pick one canonical form and align both sides. Recommended: change extraction.py to emit 'Sì' (and 'No').",
+    "After fixing, re-run AI extract flow: extracted-scatola_nera should show 'Sì' and pre-filled form Select should display 'Sì' so saved policy carries the same string as manual entries."
+  ],
+  "critical_code_review_comments": [
+    "extraction.py hardcodes 'Si' in prompts (lines ~34, ~85). Should emit 'Sì' to match the UI Select values in fields.js (['','Sì','No']).",
+    "PolicyFormDialog.extractIntoForm merges scatola_nera as-is; consider a small whitelist normalizer for enum-like fields (scatola_nera, frazionamento) to avoid orphan values in Select components."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (verified by main agent + no failures observed via UI)", "frontend": "90% (all flows work; scatola_nera enum mismatch after AI/merge)"},
+  "test_credentials": "clatino75@gmail.com / Polizze2026!",
+  "seed_data_creation": "Created UI-side test policies: TEST_GAR_MAN_002 (manual w/ 2 garanzie + Sì), TEST_AI_EXTRACT_001 (from AI extract w/ 3 garanzie), TEST_MERGE_002 (empty then merged w/ 3 garanzie). Only real policy SANTORO ANNA MARIA left untouched. Main agent may clean these up via DELETE /api/policies/{id}.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Frontend testids to remember: 'policy-add-button' (NOT 'policy-new-button') opens the Nuova Polizza dialog. Routes are Italian: /polizze, /estrazione. Garanzie editor works (garanzia-add-button, garanzia-row-i, garanzia-nome/netto/lordo-i, garanzia-remove-i). Extraction returns garanzie with numeric premi (e.g., '300.0' as float-like strings) and scatola_nera='Si' — the frontend Select expects 'Sì'.",
+  "rca of the issue": "Backend LLM extraction prompt (backend/extraction.py) instructs the model to output 'Si'/'No' for scatola_nera. Frontend Select options in lib/fields.js are ['','Sì','No']. Radix Select shows placeholder when value has no matching SelectItem, so the extracted value silently disappears from the UI and is saved as 'Si', diverging from manual entries. Fix by aligning both to 'Sì'."
+}

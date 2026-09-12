@@ -43,6 +43,12 @@ PyObjectId = Annotated[str, BeforeValidator(str)]
 
 
 # ---------- Models ----------
+class Garanzia(BaseModel):
+    nome: str = ""
+    premio_netto: str = ""
+    premio_lordo: str = ""
+
+
 class Policy(BaseModel):
     model_config = ConfigDict(extra="ignore")
     contraente_nome: str = ""
@@ -72,6 +78,8 @@ class Policy(BaseModel):
     proprietario_anagrafica_id: str = ""
     renewed_from: str = ""
     renewed_to: str = ""
+    scatola_nera: str = ""
+    garanzie: List[Garanzia] = []
     note: str = ""
 
 

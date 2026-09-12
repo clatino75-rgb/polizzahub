@@ -40,7 +40,8 @@ export default function AIExtract() {
     }
   };
 
-  const filled = fields ? Object.entries(fields).filter(([, v]) => v && v.trim()) : [];
+  const filled = fields ? Object.entries(fields).filter(([k, v]) => k !== "garanzie" && typeof v === "string" && v.trim()) : [];
+  const garanzie = fields?.garanzie || [];
 
   const saveExtracted = async (form) => {
     try {
@@ -116,6 +117,17 @@ export default function AIExtract() {
                     <span className="text-right text-sm font-medium text-slate-800">{v}</span>
                   </div>
                 ))}
+                {garanzie.length > 0 && (
+                  <div className="mt-2" data-testid="extracted-garanzie">
+                    <p className="mb-1 text-xs font-semibold text-primary">Garanzie ({garanzie.length})</p>
+                    {garanzie.map((g, i) => (
+                      <div key={i} className="flex items-center justify-between gap-3 rounded-lg bg-accent/40 px-3 py-1.5 text-sm">
+                        <span className="text-slate-700">{g.nome}</span>
+                        <span className="text-xs text-slate-500">Netto {g.premio_netto || "—"} · Lordo {g.premio_lordo || "—"}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <Button className="mt-4 w-full" onClick={() => setDialogOpen(true)} data-testid="ai-extract-review-button">
                 Verifica e salva polizza

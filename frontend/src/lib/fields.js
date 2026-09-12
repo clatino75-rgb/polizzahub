@@ -56,6 +56,7 @@ export const FIELD_SECTIONS = [
       { key: "targa", label: "Targa", type: "text" },
       { key: "data_immatricolazione", label: "Data Immatricolazione", type: "date" },
       { key: "data_voltura", label: "Data Voltura", type: "date" },
+      { key: "scatola_nera", label: "Scatola Nera / Box", type: "select", options: ["", "Sì", "No"] },
     ],
   },
   {
@@ -76,5 +77,6 @@ export function emptyPolicy() {
   o.compagnia_id = "";
   o.collaboratore_id = "";
   o.proprietario_anagrafica_id = "";
+  o.garanzie = [];
   return o;
 }
