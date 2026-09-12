@@ -1,4 +1,6 @@
+import { useState } from "react";
 import EntityManager from "@/components/EntityManager";
+import CompagniaDetailDialog from "@/components/CompagniaDetailDialog";
 
 const config = {
   endpoint: "/registry/compagnie",
@@ -22,5 +24,11 @@ const config = {
 };
 
 export default function Compagnie() {
-  return <EntityManager config={config} />;
+  const [detailId, setDetailId] = useState(null);
+  return (
+    <>
+      <EntityManager config={config} onView={(it) => setDetailId(it.id)} />
+      <CompagniaDetailDialog id={detailId} open={!!detailId} onOpenChange={(o) => !o && setDetailId(null)} />
+    </>
+  );
 }

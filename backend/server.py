@@ -293,6 +293,35 @@ async def collaboratore_detail(item_id: str, user: dict = Depends(get_current_us
     }
 
 
+@api.get("/compagnie/{item_id}/detail")
+async def compagnia_detail(item_id: str, user: dict = Depends(get_current_user)):
+    owner = str(user["_id"])
+    c = await db.compagnie.find_one({"_id": ObjectId(item_id), "owner_id": owner})
+    if not c:
+        raise HTTPException(status_code=404, detail="Compagnia non trovata")
+    pols = await db.policies.find({"owner_id": owner, "compagnia_id": item_id}).sort("data_scadenza", 1).to_list(5000)
+    today = date.today()
+    total = 0.0
+    upcoming = []
+    for p in pols:
+        try:
+            total += float(str(p.get("premio_lordo_annuale") or 0).replace(",", "."))
+        except Exception:
+            pass
+        scad = p.get("data_scadenza", "")
+        if scad:
+            try:
+                if (date.fromisoformat(scad) - today).days >= 0:
+                    upcoming.append(serialize(p))
+            except Exception:
+                pass
+    return {
+        "compagnia": serialize(c),
+        "policies": [serialize(p) for p in pols],
+        "stats": {"count": len(pols), "premio_totale": round(total, 2), "upcoming": upcoming[:5]},
+    }
+
+
 # ---------- Policies ----------
 @api.get("/policies")
 async def list_policies(search: str = "", compagnia_id: str = "", ramo: str = "",
