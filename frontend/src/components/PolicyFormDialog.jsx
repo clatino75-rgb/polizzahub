@@ -60,6 +60,11 @@ export default function PolicyFormDialog({ open, onOpenChange, initial, onSave }
   const addGaranzia = () => setForm((f) => ({ ...f, garanzie: [...(f.garanzie || []), { nome: "", premio_netto: "", premio_lordo: "" }] }));
   const updateGaranzia = (i, k, v) => setForm((f) => { const g = [...(f.garanzie || [])]; g[i] = { ...g[i], [k]: v }; return { ...f, garanzie: g }; });
   const removeGaranzia = (i) => setForm((f) => ({ ...f, garanzie: (f.garanzie || []).filter((_, idx) => idx !== i) }));
+
+  const parseNum = (v) => { const n = parseFloat(String(v || "").replace(/\./g, "").replace(",", ".")); return isNaN(n) ? 0 : n; };
+  const garanzieTotali = (form.garanzie || []).reduce(
+    (acc, g) => ({ netto: acc.netto + parseNum(g.premio_netto), lordo: acc.lordo + parseNum(g.premio_lordo) }),
+    { netto: 0, lordo: 0 });
   const pickProprietario = (v) => {
     if (v === "__none") { setForm((f) => ({ ...f, proprietario_anagrafica_id: "" })); return; }
     const a = anagrafiche.find((x) => x.id === v);
@@ -255,6 +260,14 @@ export default function PolicyFormDialog({ open, onOpenChange, initial, onSave }
                 </Button>
               </div>
             ))}
+            {(form.garanzie || []).length > 0 && (
+              <div className="mt-2 flex items-center justify-between rounded-lg bg-accent/50 px-3 py-2 text-sm font-medium" data-testid="garanzie-totale">
+                <span className="text-primary">Totale garanzie ({form.garanzie.length})</span>
+                <span className="text-slate-700">
+                  Netto € {garanzieTotali.netto.toLocaleString("it-IT")} · Lordo € {garanzieTotali.lordo.toLocaleString("it-IT")}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 

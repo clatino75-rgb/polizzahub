@@ -189,6 +189,7 @@ export default function Policies() {
                 <TableHead>Ramo</TableHead>
                 <TableHead>Scadenza</TableHead>
                 <TableHead>Frazionamento</TableHead>
+                <TableHead>Garanzie / Box</TableHead>
                 <TableHead className="text-right">Azioni</TableHead>
               </TableRow>
             </TableHeader>
@@ -209,6 +210,16 @@ export default function Policies() {
                   <TableCell>{p.ramo_polizza ? <Badge variant="secondary">{p.ramo_polizza}</Badge> : "—"}</TableCell>
                   <TableCell>{p.data_scadenza || "—"}</TableCell>
                   <TableCell>{p.frazionamento || "—"}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant="secondary" data-testid={`policy-garanzie-count-${p.id}`}>
+                        {(p.garanzie?.length || 0)} gar.
+                      </Badge>
+                      {p.scatola_nera === "Sì" && (
+                        <Badge className="border-0 bg-sky-100 text-sky-700" data-testid={`policy-box-${p.id}`}>Box</Badge>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell className="text-right">
                     <Button variant="ghost" size="icon" data-testid={`policy-docs-${p.id}`}
                       onClick={() => setDocFor(p)} title="Documenti archiviati">
